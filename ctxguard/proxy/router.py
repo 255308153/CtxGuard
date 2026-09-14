@@ -47,10 +47,10 @@ def create_router(
 
     @router.get("/api/stats")
     async def get_dashboard_stats():
-        """API returning summary statistics and recent request history."""
+        """API returning summary statistics and recent request history directly from SQLite."""
         if stats_repo:
             summary = stats_repo.get_summary()
-            recent = stats_repo.get_recent_requests(limit=15)
+            recent = stats_repo.get_recent_requests(limit=20)
         else:
             summary = {
                 "total_requests": 0,
@@ -63,6 +63,69 @@ def create_router(
             }
             recent = []
         return {"summary": summary, "recent": recent}
+
+    @router.get("/api/db/raw")
+    async def get_raw_database_records():
+        """API returning direct SQLite database records for verification."""
+        if not stats_repo:
+            return {"requests": [], "fingerprints": []}
+
+        with stats_repo.db.get_connection() as conn:
+            cur1 = conn.execute("SELECT * FROM requests ORDER BY id DESC LIMIT 50")
+            requests_rows = [dict(r) for r in cur1.fetchall()]
+
+            cur2 = conn.execute("SELECT hash_id, session_id, char_length, created_at FROM fingerprints ORDER BY created_at DESC LIMIT 50")
+            fp_rows = [dict(r) for r in cur2.fetchall()]
+
+        return {"requests": requests_rows, "fingerprints": fp_rows}
+
+    @router.post("/api/simulate/request")
+    async def simulate_live_proxy_request(request: Request):
+        """Simulate a real agent conversational request, run through pipeline, and persist to SQLite."""
+        body = await request.json()
+        model = body.get("model", "claude-3-5-sonnet-20241022")
+        prompt = body.get("prompt", "Analyze project structure and run build.")
+        tool_output = body.get("tool_output", "[\n  {\"id\": 1, \"status\": \"ok\", \"latency\": 12.5},\n  {\"id\": 2, \"status\": \"ok\", \"latency\": 14.1}\n]")
+
+        start_time = time.perf_counter()
+        session_id = f"session_{int(time.time())}"
+
+        messages = [
+            Message(role="user", content=prompt),
+            Message(role="assistant", content="Running analysis..."),
+            Message(role="tool", content=tool_output),
+        ]
+        norm_req = NormalizedRequest(
+            protocol="anthropic" if "claude" in model else "openai",
+            model=model,
+            messages=messages,
+            session_id=session_id,
+        )
+
+        req_ctx = await pipeline.process(norm_req)
+        duration_ms = (time.perf_counter() - start_time) * 1000
+
+        if stats_repo:
+            stats_repo.record_request(
+                session_id=session_id,
+                protocol=norm_req.protocol,
+                model=model,
+                raw_tokens=req_ctx.original_tokens,
+                optimized_tokens=req_ctx.optimized_tokens,
+                latency_ms=duration_ms,
+                applied_compressors=req_ctx.applied_compressors,
+            )
+
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "raw_tokens": req_ctx.original_tokens,
+            "optimized_tokens": req_ctx.optimized_tokens,
+            "saved_tokens": max(0, req_ctx.original_tokens - req_ctx.optimized_tokens),
+            "saved_percent": round((max(0, req_ctx.original_tokens - req_ctx.optimized_tokens) / max(1, req_ctx.original_tokens)) * 100, 2),
+            "latency_ms": round(duration_ms, 2),
+            "applied_compressors": req_ctx.applied_compressors,
+        }
 
     @router.post("/api/test/compress")
     async def test_compress_endpoint(request: Request):
@@ -100,7 +163,7 @@ def create_router(
         """API to trigger offline failure incident mining and generate rule block."""
         detector = LoopDetector(threshold=config.learn.detect_loop_threshold)
         extractor = CausalityExtractor()
-        incidents = []  # Scans DB in production
+        incidents = []
         rules = extractor.extract_rules(incidents)
         rendered = RuleRenderer.render_markdown_block(rules, marker="CTXGUARD_AUTO_RULES")
         return {"status": "ok", "rendered_rules": rendered}

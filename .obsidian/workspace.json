@@ -190,17 +190,17 @@
   },
   "active": "93a54de857e27d07",
   "lastOpenFiles": [
-    "ctxguard/proxy/__pycache__/dashboard.cpython-313.pyc",
-    "tests/integration/__pycache__/test_dashboard.cpython-313-pytest-8.4.2.pyc",
-    "tests/integration/test_dashboard.py",
-    "ctxguard/proxy/dashboard.py",
-    "tests/unit/__pycache__/test_onnx_tokenizer.cpython-313-pytest-8.4.2.pyc",
-    "tests/unit/__pycache__/test_onnx_scorer.cpython-313-pytest-8.4.2.pyc",
-    "benchmarks/__pycache__/synthetic_dataset.cpython-313.pyc",
-    "benchmarks/__pycache__/run_benchmark.cpython-313.pyc",
-    "benchmarks/__pycache__",
-    "ctxguard/plugins/onnx/__pycache__/scorer.cpython-313.pyc",
-    "ctxguard/plugins/onnx/__pycache__/tokenizer.cpython-313.pyc",
+    "ctxguard/cli/__pycache__/cmd_learn.cpython-312.pyc",
+    "ctxguard/cli/__pycache__/cmd_stats.cpython-312.pyc",
+    "ctxguard/cli/__pycache__/cmd_config.cpython-312.pyc",
+    "ctxguard/proxy/__pycache__/sse.cpython-312.pyc",
+    "ctxguard/proxy/__pycache__/dashboard.cpython-312.pyc",
+    "ctxguard/proxy/adapters/__pycache__/anthropic.cpython-312.pyc",
+    "ctxguard/proxy/adapters/__pycache__/openai.cpython-312.pyc",
+    "ctxguard/proxy/adapters/__pycache__/base.cpython-312.pyc",
+    "ctxguard/proxy/adapters/__pycache__/__init__.cpython-312.pyc",
+    "ctxguard/learn/__pycache__/atomic_writer.cpython-312.pyc",
+    "ctxguard/learn/__pycache__/rule_renderer.cpython-312.pyc",
     "DEVELOPMENT_PLAN.md"
   ]
 }
