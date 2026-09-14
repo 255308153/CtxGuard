@@ -13,6 +13,9 @@ upstream:
     deepseek:
       base_url: "https://api.deepseek.com"
       api_key: "sk-bb17cefecc4142429f9b87f3a661a371"
+    grok:
+      base_url: "https://sub.yjxm1221.top/v1"
+      api_key: "sk-dd15f560859fb694452dc5b1daebb827acbd1e7d925ed0e8fef682017cac136d"
     anthropic:
       base_url: "https://api.anthropic.com"
       api_key_env: "ANTHROPIC_API_KEY"
