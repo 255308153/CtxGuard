@@ -1,7 +1,7 @@
 """Embedded Web Dashboard HTML template and UI renderer for CtxGuard."""
 
 def get_dashboard_html() -> str:
-    """Returns self-contained modern dark-mode responsive dashboard HTML."""
+    """Returns self-contained modern dark-mode responsive dashboard HTML with Session/Project/Model classification."""
     return """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -39,6 +39,7 @@ def get_dashboard_html() -> str:
     code, pre, .font-mono { font-family: 'JetBrains Mono', monospace; }
     .glass { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(31, 41, 61, 0.8); }
     .glow-emerald { box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.2); }
+    .glow-blue { box-shadow: 0 0 25px -5px rgba(59, 130, 246, 0.2); }
   </style>
 </head>
 <body class="min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white">
@@ -143,34 +144,110 @@ def get_dashboard_html() -> str:
       </div>
     </section>
 
-    <!-- Recent Requests History Table (Live SQLite Query with Project & Conversation ID) -->
-    <section class="glass rounded-2xl p-6 space-y-4">
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-4 border-b border-dark-border">
+    <!-- Classification & Multi-Dimension Filter Console (Project / Model / Session Grouping) -->
+    <section class="glass rounded-2xl p-6 space-y-5">
+      
+      <!-- Top Row: Section Header & View Mode Switcher -->
+      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-dark-border">
         <div>
           <h2 class="text-base font-bold text-white flex items-center space-x-2">
-            <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
-            <span>真实对话会话与项目流水表 (`requests` 表)</span>
+            <svg class="w-5 h-5 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+            <span>对话会话窗口分类与多维流控监控</span>
           </h2>
-          <p class="text-xs text-gray-400 mt-1">点击任意行可查看该对话的完整上下文提问详情、命中的压缩算子与节省明细</p>
+          <p class="text-xs text-gray-400 mt-1">按对话会话窗口（Session）、归属项目（Project）及调用模型（Model）实时聚合与分类</p>
         </div>
-        <span class="text-xs text-emerald-400 flex items-center space-x-1.5 self-start md:self-auto">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>每 2.5 秒自动同步数据库</span>
-        </span>
+
+        <!-- View Mode Switcher -->
+        <div class="flex items-center bg-dark-input p-1 rounded-xl border border-dark-border space-x-1 text-xs self-start lg:self-auto">
+          <button id="btn-view-session" onclick="setViewMode('session')" class="px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 bg-brand-500/20 text-brand-300 border border-brand-500/30 shadow-sm">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
+            <span>按对话窗口聚合视图</span>
+          </button>
+          <button id="btn-view-flat" onclick="setViewMode('flat')" class="px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 text-gray-400 hover:text-gray-200">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+            <span>单次请求明细流水</span>
+          </button>
+        </div>
       </div>
 
-      <div class="overflow-x-auto">
+      <!-- Filter Controls Bar -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <!-- Project Filter -->
+        <div class="space-y-1">
+          <label class="text-[11px] font-semibold text-gray-400 flex items-center space-x-1">
+            <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+            <span>按项目分类 (Project)</span>
+          </label>
+          <select id="filter-project" onchange="applyFilters()" class="w-full bg-dark-input border border-dark-border rounded-xl px-3 py-2 text-xs font-mono text-emerald-300 focus:outline-none focus:border-brand-500 transition">
+            <option value="ALL">全部项目 (All Projects)</option>
+          </select>
+        </div>
+
+        <!-- Model Filter -->
+        <div class="space-y-1">
+          <label class="text-[11px] font-semibold text-gray-400 flex items-center space-x-1">
+            <svg class="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+            <span>按模型分类 (Model)</span>
+          </label>
+          <select id="filter-model" onchange="applyFilters()" class="w-full bg-dark-input border border-dark-border rounded-xl px-3 py-2 text-xs font-mono text-blue-300 focus:outline-none focus:border-brand-500 transition">
+            <option value="ALL">全部模型 (All Models)</option>
+          </select>
+        </div>
+
+        <!-- Keyword / Session Search -->
+        <div class="space-y-1">
+          <label class="text-[11px] font-semibold text-gray-400 flex items-center space-x-1">
+            <svg class="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            <span>搜索会话 ID / 提问内容</span>
+          </label>
+          <div class="relative">
+            <input id="filter-search" oninput="applyFilters()" type="text" placeholder="输入会话 ID 或提问关键字过滤..." class="w-full bg-dark-input border border-dark-border rounded-xl pl-3 pr-8 py-2 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500 transition placeholder-gray-600">
+            <button onclick="clearSearch()" class="absolute right-2.5 top-2.5 text-gray-500 hover:text-gray-300 text-xs">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Distribution Badges (Projects & Models) -->
+      <div class="pt-2 border-t border-dark-border/60 flex flex-wrap items-center gap-2 text-xs">
+        <span class="text-gray-500 text-[11px]">快捷分布:</span>
+        <div id="project-badges-container" class="flex flex-wrap gap-1.5 items-center"></div>
+        <div class="h-3.5 w-px bg-dark-border mx-1"></div>
+        <div id="model-badges-container" class="flex flex-wrap gap-1.5 items-center"></div>
+      </div>
+
+      <!-- Active Filter Reset Pill -->
+      <div id="active-filter-bar" class="hidden flex items-center justify-between p-2.5 rounded-xl bg-brand-500/10 border border-brand-500/20 text-xs text-brand-300">
+        <span id="active-filter-text">当前已筛选: </span>
+        <button onclick="resetAllFilters()" class="text-[11px] underline hover:text-white font-semibold">重置所有筛选</button>
+      </div>
+
+      <!-- VIEW 1: Session Group View (Grouped by Conversation Window) -->
+      <div id="view-session-container" class="space-y-3.5">
+        <div class="flex items-center justify-between text-xs text-gray-400 px-1">
+          <span>共找到 <b id="session-count-badge" class="text-emerald-400 font-mono">0</b> 个对话窗口会话</span>
+          <span>点击会话卡片可展开该窗口内的各轮对话明细</span>
+        </div>
+        <div id="session-groups-list" class="space-y-3">
+          <div class="py-8 text-center text-gray-500 text-xs">正在加载会话分类数据...</div>
+        </div>
+      </div>
+
+      <!-- VIEW 2: Flat Stream Table View (Single Request Logs) -->
+      <div id="view-flat-container" class="hidden overflow-x-auto">
+        <div class="flex items-center justify-between text-xs text-gray-400 px-1 mb-2">
+          <span>共找到 <b id="flat-count-badge" class="text-blue-400 font-mono">0</b> 条请求记录</span>
+        </div>
         <table class="w-full text-left text-xs">
           <thead class="text-gray-400 font-semibold border-b border-dark-border/60 uppercase text-[11px]">
             <tr>
               <th class="pb-2.5">ID</th>
-              <th class="pb-2.5">所属项目 / 来源</th>
+              <th class="pb-2.5">所属项目</th>
               <th class="pb-2.5">对话会话 ID</th>
-              <th class="pb-2.5">用户对话提问摘要</th>
+              <th class="pb-2.5">提问摘要</th>
               <th class="pb-2.5">模型</th>
               <th class="pb-2.5">Token (原始 → 优化后)</th>
               <th class="pb-2.5">节省率</th>
-              <th class="pb-2.5">处理耗时</th>
+              <th class="pb-2.5">耗时</th>
               <th class="pb-2.5">操作</th>
             </tr>
           </thead>
@@ -179,6 +256,7 @@ def get_dashboard_html() -> str:
           </tbody>
         </table>
       </div>
+
     </section>
 
     <!-- Interactive Workspace Grid -->
@@ -345,6 +423,13 @@ def get_dashboard_html() -> str:
 
   <script>
     let globalRecentData = [];
+    let currentViewMode = 'session'; // 'session' | 'flat'
+    let expandedSessions = new Set();
+    let filterState = {
+      project: 'ALL',
+      model: 'ALL',
+      search: ''
+    };
 
     const SAMPLES = {
       code: `// src/controllers/user.controller.ts
@@ -381,6 +466,68 @@ export class UserController {
       runTestCompress();
     }
 
+    function setViewMode(mode) {
+      currentViewMode = mode;
+      const btnSession = document.getElementById('btn-view-session');
+      const btnFlat = document.getElementById('btn-view-flat');
+      const viewSession = document.getElementById('view-session-container');
+      const viewFlat = document.getElementById('view-flat-container');
+
+      if (mode === 'session') {
+        btnSession.className = 'px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 bg-brand-500/20 text-brand-300 border border-brand-500/30 shadow-sm';
+        btnFlat.className = 'px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 text-gray-400 hover:text-gray-200';
+        viewSession.classList.remove('hidden');
+        viewFlat.classList.add('hidden');
+      } else {
+        btnFlat.className = 'px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 bg-blue-500/20 text-blue-300 border border-blue-500/30 shadow-sm';
+        btnSession.className = 'px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 text-gray-400 hover:text-gray-200';
+        viewFlat.classList.remove('hidden');
+        viewSession.classList.add('hidden');
+      }
+      renderFilteredViews();
+    }
+
+    function toggleSessionExpand(sessionId) {
+      if (expandedSessions.has(sessionId)) {
+        expandedSessions.delete(sessionId);
+      } else {
+        expandedSessions.add(sessionId);
+      }
+      renderFilteredViews();
+    }
+
+    function setFilter(type, value) {
+      if (type === 'project') {
+        filterState.project = value;
+        document.getElementById('filter-project').value = value;
+      } else if (type === 'model') {
+        filterState.model = value;
+        document.getElementById('filter-model').value = value;
+      }
+      applyFilters();
+    }
+
+    function clearSearch() {
+      document.getElementById('filter-search').value = '';
+      filterState.search = '';
+      applyFilters();
+    }
+
+    function resetAllFilters() {
+      filterState = { project: 'ALL', model: 'ALL', search: '' };
+      document.getElementById('filter-project').value = 'ALL';
+      document.getElementById('filter-model').value = 'ALL';
+      document.getElementById('filter-search').value = '';
+      applyFilters();
+    }
+
+    function applyFilters() {
+      filterState.project = document.getElementById('filter-project').value;
+      filterState.model = document.getElementById('filter-model').value;
+      filterState.search = document.getElementById('filter-search').value.trim().toLowerCase();
+      renderFilteredViews();
+    }
+
     async function refreshData() {
       try {
         const res = await fetch('/api/stats');
@@ -395,17 +542,121 @@ export class UserController {
         document.getElementById('stat-total-requests').innerText = (summary.total_requests || 0).toLocaleString();
         document.getElementById('stat-avg-latency').innerText = (summary.avg_latency_ms || 0).toFixed(2);
 
-        // Render real recent table
-        const tbody = document.getElementById('recent-table-body');
-        const recent = data.recent || [];
-        globalRecentData = recent;
+        globalRecentData = data.recent || [];
+        populateDropdownsAndBadges();
+        renderFilteredViews();
+      } catch (err) {
+        console.error('Failed to load stats:', err);
+      }
+    }
 
-        if (recent.length > 0) {
-          tbody.innerHTML = recent.map((r, idx) => {
-            const preview = r.prompt_preview ? r.prompt_preview : '(无提问文本)';
-            const proj = r.project_name || 'Pi-Agent';
-            return `
-            <tr onclick="openModal(${idx})" class="hover:bg-dark-card/60 cursor-pointer transition">
+    function populateDropdownsAndBadges() {
+      const projectsCount = {};
+      const modelsCount = {};
+
+      globalRecentData.forEach(r => {
+        const p = r.project_name || 'Pi-Agent';
+        const m = r.model || 'unknown';
+        projectsCount[p] = (projectsCount[p] || 0) + 1;
+        modelsCount[m] = (modelsCount[m] || 0) + 1;
+      });
+
+      // Update Project Select
+      const projSelect = document.getElementById('filter-project');
+      const currentProj = filterState.project;
+      const projOptions = ['<option value="ALL">全部项目 (All Projects)</option>'];
+      Object.keys(projectsCount).sort().forEach(p => {
+        projOptions.push(`<option value="${p}" ${currentProj === p ? 'selected' : ''}>${p} (${projectsCount[p]})</option>`);
+      });
+      projSelect.innerHTML = projOptions.join('');
+
+      // Update Model Select
+      const modelSelect = document.getElementById('filter-model');
+      const currentModel = filterState.model;
+      const modelOptions = ['<option value="ALL">全部模型 (All Models)</option>'];
+      Object.keys(modelsCount).sort().forEach(m => {
+        modelOptions.push(`<option value="${m}" ${currentModel === m ? 'selected' : ''}>${m} (${modelsCount[m]})</option>`);
+      });
+      modelSelect.innerHTML = modelOptions.join('');
+
+      // Render Project Badges
+      const projBadgesContainer = document.getElementById('project-badges-container');
+      projBadgesContainer.innerHTML = Object.keys(projectsCount).map(p => {
+        const isSelected = filterState.project === p;
+        return `
+          <button onclick="setFilter('project', '${isSelected ? 'ALL' : p}')" class="px-2 py-0.5 rounded-md text-[11px] font-mono border transition ${
+            isSelected 
+              ? 'bg-emerald-500 text-gray-950 font-bold border-emerald-400 shadow-sm' 
+              : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+          }">
+            ${p} <span class="opacity-80">(${projectsCount[p]})</span>
+          </button>
+        `;
+      }).join('');
+
+      // Render Model Badges
+      const modelBadgesContainer = document.getElementById('model-badges-container');
+      modelBadgesContainer.innerHTML = Object.keys(modelsCount).map(m => {
+        const isSelected = filterState.model === m;
+        return `
+          <button onclick="setFilter('model', '${isSelected ? 'ALL' : m}')" class="px-2 py-0.5 rounded-md text-[11px] font-mono border transition ${
+            isSelected 
+              ? 'bg-blue-500 text-white font-bold border-blue-400 shadow-sm' 
+              : 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
+          }">
+            ${m} <span class="opacity-80">(${modelsCount[m]})</span>
+          </button>
+        `;
+      }).join('');
+    }
+
+    function renderFilteredViews() {
+      // 1. Filter raw items
+      const filtered = globalRecentData.filter(r => {
+        const p = r.project_name || 'Pi-Agent';
+        const m = r.model || 'unknown';
+        const sess = r.session_id || '';
+        const prev = r.prompt_preview || '';
+
+        if (filterState.project !== 'ALL' && p !== filterState.project) return false;
+        if (filterState.model !== 'ALL' && m !== filterState.model) return false;
+        if (filterState.search) {
+          const matchSearch = sess.toLowerCase().includes(filterState.search)
+            || prev.toLowerCase().includes(filterState.search)
+            || p.toLowerCase().includes(filterState.search)
+            || m.toLowerCase().includes(filterState.search);
+          if (!matchSearch) return false;
+        }
+        return true;
+      });
+
+      // Update Active Filter Bar
+      const filterBar = document.getElementById('active-filter-bar');
+      const filterText = document.getElementById('active-filter-text');
+      const isFiltered = (filterState.project !== 'ALL' || filterState.model !== 'ALL' || filterState.search !== '');
+      if (isFiltered) {
+        filterBar.classList.remove('hidden');
+        const tags = [];
+        if (filterState.project !== 'ALL') tags.push(`项目: <b>${filterState.project}</b>`);
+        if (filterState.model !== 'ALL') tags.push(`模型: <b>${filterState.model}</b>`);
+        if (filterState.search) tags.push(`搜索: <b>"${filterState.search}"</b>`);
+        filterText.innerHTML = `当前过滤条件 [${tags.join(' • ')}] → 匹配到 <b>${filtered.length}</b> 条记录`;
+      } else {
+        filterBar.classList.add('hidden');
+      }
+
+      // Update count badges
+      document.getElementById('flat-count-badge').innerText = filtered.length;
+
+      // 2. Render Flat Table
+      const flatTbody = document.getElementById('recent-table-body');
+      if (filtered.length > 0) {
+        flatTbody.innerHTML = filtered.map((r) => {
+          const origIdx = globalRecentData.findIndex(item => item.id === r.id);
+          const preview = r.prompt_preview ? r.prompt_preview : '(无提问文本)';
+          const proj = r.project_name || 'Pi-Agent';
+          return `
+            <tr onclick="openModal(${origIdx})" class="hover:bg-dark-card/60 cursor-pointer transition">
               <td class="py-2.5 text-gray-500 font-bold">#${r.id}</td>
               <td class="py-2.5">
                 <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-semibold text-[11px]">${proj}</span>
@@ -417,16 +668,135 @@ export class UserController {
               <td class="py-2.5 font-bold text-brand-400">${r.saved_ratio}%</td>
               <td class="py-2.5 text-amber-300">${r.latency_ms.toFixed(1)}ms</td>
               <td class="py-2.5">
-                <button onclick="event.stopPropagation(); openModal(${idx})" class="px-2 py-0.5 rounded bg-dark-card hover:bg-gray-800 text-[10px] text-gray-300 border border-dark-border">详情</button>
+                <button onclick="event.stopPropagation(); openModal(${origIdx})" class="px-2 py-0.5 rounded bg-dark-card hover:bg-gray-800 text-[10px] text-gray-300 border border-dark-border">详情</button>
               </td>
             </tr>
           `;
-          }).join('');
-        } else {
-          tbody.innerHTML = '<tr><td colspan="9" class="py-6 text-center text-gray-500 font-sans">当前 SQLite 数据库暂无请求，在终端运行 pi 即可立即生成！</td></tr>';
+        }).join('');
+      } else {
+        flatTbody.innerHTML = '<tr><td colspan="9" class="py-6 text-center text-gray-500 font-sans">未找到符合筛选条件的请求记录</td></tr>';
+      }
+
+      // 3. Group by Session for Session View
+      const sessionMap = {};
+      filtered.forEach(r => {
+        const sid = r.session_id || 'default';
+        if (!sessionMap[sid]) {
+          sessionMap[sid] = {
+            session_id: sid,
+            project_name: r.project_name || 'Pi-Agent',
+            models: new Set(),
+            requests: [],
+            total_raw: 0,
+            total_opt: 0,
+            total_saved: 0,
+            avg_latency: 0,
+            first_prompt: r.prompt_preview || '',
+            latest_prompt: r.prompt_preview || '',
+            last_timestamp: r.timestamp || ''
+          };
         }
-      } catch (err) {
-        console.error('Failed to load stats:', err);
+        const g = sessionMap[sid];
+        g.requests.push(r);
+        g.models.add(r.model);
+        g.total_raw += r.raw_tokens || 0;
+        g.total_opt += r.optimized_tokens || 0;
+        g.total_saved += r.saved_tokens || 0;
+        g.latest_prompt = r.prompt_preview || g.latest_prompt;
+      });
+
+      const sessionGroups = Object.values(sessionMap);
+      document.getElementById('session-count-badge').innerText = sessionGroups.length;
+
+      const sessionListContainer = document.getElementById('session-groups-list');
+      if (sessionGroups.length > 0) {
+        sessionListContainer.innerHTML = sessionGroups.map(g => {
+          const isExpanded = expandedSessions.has(g.session_id);
+          const turnsCount = g.requests.length;
+          const modelsList = Array.from(g.models).join(', ');
+          const overallSavedRatio = g.total_raw > 0 ? ((g.total_saved / g.total_raw) * 100).toFixed(1) : '0.0';
+          const avgLatency = (g.requests.reduce((acc, x) => acc + (x.latency_ms || 0), 0) / turnsCount).toFixed(1);
+          
+          return `
+            <div class="glass rounded-xl border border-dark-border/80 overflow-hidden transition hover:border-dark-border">
+              <!-- Session Header Card -->
+              <div onclick="toggleSessionExpand('${g.session_id}')" class="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer bg-dark-card/40 hover:bg-dark-card/80 transition">
+                <div class="space-y-1.5 flex-1 min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-bold text-xs font-mono">
+                      📁 ${g.project_name}
+                    </span>
+                    <span class="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-300 border border-blue-500/20 font-semibold text-xs font-mono">
+                      🤖 ${modelsList}
+                    </span>
+                    <span class="px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-300 border border-purple-500/20 font-semibold text-xs font-mono">
+                      💬 ${turnsCount} 轮对话
+                    </span>
+                    <span class="text-xs font-mono text-gray-400 truncate max-w-[260px]" title="${g.session_id}">
+                      窗口 ID: <b class="text-gray-200">${g.session_id}</b>
+                    </span>
+                  </div>
+                  <div class="text-xs text-gray-300 truncate font-sans" title="${escapeHtml(g.latest_prompt)}">
+                    <span class="text-gray-500 font-semibold">最新提问:</span> ${escapeHtml(g.latest_prompt || '(无文本)')}
+                  </div>
+                </div>
+
+                <!-- Session Stats & Toggle -->
+                <div class="flex items-center space-x-4 self-end md:self-center shrink-0">
+                  <div class="text-right font-mono text-xs">
+                    <div class="text-emerald-400 font-bold">省 ${g.total_saved} Tokens (${overallSavedRatio}%)</div>
+                    <div class="text-gray-500 text-[11px]">均耗时 ${avgLatency}ms</div>
+                  </div>
+                  <div class="w-6 h-6 rounded-lg bg-dark-card border border-dark-border flex items-center justify-center text-gray-400 transition ${isExpanded ? 'rotate-180 text-brand-400' : ''}">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Collapsible Turns Table -->
+              ${isExpanded ? `
+                <div class="border-t border-dark-border/80 bg-dark-bg/60 p-3 overflow-x-auto">
+                  <table class="w-full text-left text-xs font-mono">
+                    <thead class="text-gray-500 uppercase text-[10px] border-b border-dark-border/40">
+                      <tr>
+                        <th class="pb-2">轮次</th>
+                        <th class="pb-2">提问摘要</th>
+                        <th class="pb-2">模型</th>
+                        <th class="pb-2">Token 变化</th>
+                        <th class="pb-2">节省率</th>
+                        <th class="pb-2">处理算子</th>
+                        <th class="pb-2">耗时</th>
+                        <th class="pb-2">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-dark-border/30 text-gray-300">
+                      ${g.requests.map((r, turnIdx) => {
+                        const origIdx = globalRecentData.findIndex(item => item.id === r.id);
+                        const comps = (r.applied_compressors || []).map(c => `<span class="px-1.5 py-0.2 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20 text-[10px]">${c}</span>`).join(' ');
+                        return `
+                          <tr class="hover:bg-dark-card/40">
+                            <td class="py-2 text-gray-500">#${r.id} (第 ${turnsCount - turnIdx} 轮)</td>
+                            <td class="py-2 text-gray-200 font-sans truncate max-w-[220px]" title="${escapeHtml(r.prompt_preview || '')}">${escapeHtml(r.prompt_preview || '(无提问文本)')}</td>
+                            <td class="py-2 text-blue-400 font-semibold">${r.model}</td>
+                            <td class="py-2">${r.raw_tokens} → <span class="text-emerald-400">${r.optimized_tokens}</span></td>
+                            <td class="py-2 font-bold text-brand-400">${r.saved_ratio}%</td>
+                            <td class="py-2">${comps || '<span class="text-gray-500 italic">无</span>'}</td>
+                            <td class="py-2 text-amber-300">${r.latency_ms.toFixed(1)}ms</td>
+                            <td class="py-2">
+                              <button onclick="openModal(${origIdx})" class="px-2 py-0.5 rounded bg-dark-card hover:bg-gray-800 text-[10px] text-gray-300 border border-dark-border">查看详情</button>
+                            </td>
+                          </tr>
+                        `;
+                      }).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('');
+      } else {
+        sessionListContainer.innerHTML = '<div class="py-8 text-center text-gray-500 text-xs">未找到符合当前筛选条件的对话会话窗口</div>';
       }
     }
 
@@ -468,9 +838,9 @@ export class UserController {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            model: 'gemini-3.7-flash-high',
+            model: 'deepseek-flash',
             prompt: 'Please query customer database records and optimize schema.',
-            project_name: 'MathTutor-Agent',
+            project_name: 'Pi-Web',
             tool_output: JSON.stringify([
               { id: 1, name: "Alice", role: "admin", status: "active" },
               { id: 2, name: "Bob", role: "user", status: "active" },

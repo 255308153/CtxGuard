@@ -157,7 +157,7 @@ def create_router(
         """API returning summary statistics and recent request history directly from SQLite."""
         if stats_repo:
             summary = stats_repo.get_summary()
-            recent = stats_repo.get_recent_requests(limit=30)
+            recent = stats_repo.get_recent_requests(limit=100)
         else:
             summary = {
                 "total_requests": 0,
