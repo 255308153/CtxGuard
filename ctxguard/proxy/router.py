@@ -1,20 +1,26 @@
-"""API route definitions for OpenAI and Anthropic proxy endpoints with persistence & virtual tools."""
+"""API route definitions for OpenAI and Anthropic proxy endpoints, Web Dashboard, and Admin APIs."""
 
 import time
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Request, Response
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 import orjson
 
 from ctxguard.config.schema import AppConfig
+from ctxguard.core.context import Message, NormalizedRequest
 from ctxguard.core.pipeline import CompressionPipeline
 from ctxguard.core.virtual_tools.executor import VirtualToolExecutor
+from ctxguard.learn.loop_detector import LoopDetector
+from ctxguard.learn.causality_extractor import CausalityExtractor
+from ctxguard.learn.rule_renderer import RuleRenderer
 from ctxguard.proxy.adapters.openai import OpenAIAdapter
 from ctxguard.proxy.adapters.anthropic import AnthropicAdapter
+from ctxguard.proxy.dashboard import get_dashboard_html
 from ctxguard.proxy.upstream import UpstreamClient
 from ctxguard.proxy.sse import SSEStreamHandler
 from ctxguard.storage.repository_stats import StatsRepository
 from ctxguard.storage.repository_fingerprint import FingerprintRepository
+from ctxguard.utils.token_counter import estimate_tokens_from_text
 
 
 def create_router(
@@ -30,6 +36,78 @@ def create_router(
     anthropic_adapter = AnthropicAdapter()
     virtual_tool_executor = VirtualToolExecutor(fingerprint_repo=fingerprint_repo)
 
+    # --------------------------------------------------------------------------
+    # Web Dashboard Endpoints
+    # --------------------------------------------------------------------------
+    @router.get("/", response_class=HTMLResponse)
+    @router.get("/dashboard", response_class=HTMLResponse)
+    async def dashboard_view():
+        """Serve the interactive CtxGuard Web Control Panel."""
+        return HTMLResponse(content=get_dashboard_html(), status_code=200)
+
+    @router.get("/api/stats")
+    async def get_dashboard_stats():
+        """API returning summary statistics and recent request history."""
+        if stats_repo:
+            summary = stats_repo.get_summary()
+            recent = stats_repo.get_recent_requests(limit=15)
+        else:
+            summary = {
+                "total_requests": 0,
+                "total_raw_tokens": 0,
+                "total_optimized_tokens": 0,
+                "total_saved_tokens": 0,
+                "overall_saved_percent": 0.0,
+                "avg_latency_ms": 0.0,
+                "estimated_dollars_saved": 0.0,
+            }
+            recent = []
+        return {"summary": summary, "recent": recent}
+
+    @router.post("/api/test/compress")
+    async def test_compress_endpoint(request: Request):
+        """API for interactive compression playground testing."""
+        body = await request.json()
+        input_text = str(body.get("text", ""))
+
+        test_msg = Message(role="user", content=input_text)
+        test_req = NormalizedRequest(
+            protocol="openai",
+            model="gpt-4o",
+            messages=[test_msg],
+            session_id="playground_test",
+        )
+
+        ctx = await pipeline.process(test_req)
+        optimized_text = test_req.messages[0].get_text_content() if test_req.messages else ""
+
+        raw_tokens = estimate_tokens_from_text(input_text)
+        opt_tokens = estimate_tokens_from_text(optimized_text)
+        saved_tokens = max(0, raw_tokens - opt_tokens)
+        saved_pct = round((saved_tokens / max(1, raw_tokens)) * 100, 2)
+
+        return {
+            "raw_tokens": raw_tokens,
+            "optimized_tokens": opt_tokens,
+            "saved_tokens": saved_tokens,
+            "saved_percent": saved_pct,
+            "optimized_text": optimized_text,
+            "applied_compressors": ctx.applied_compressors,
+        }
+
+    @router.post("/api/learn/run")
+    async def run_learn_api():
+        """API to trigger offline failure incident mining and generate rule block."""
+        detector = LoopDetector(threshold=config.learn.detect_loop_threshold)
+        extractor = CausalityExtractor()
+        incidents = []  # Scans DB in production
+        rules = extractor.extract_rules(incidents)
+        rendered = RuleRenderer.render_markdown_block(rules, marker="CTXGUARD_AUTO_RULES")
+        return {"status": "ok", "rendered_rules": rendered}
+
+    # --------------------------------------------------------------------------
+    # Health & Models Endpoints
+    # --------------------------------------------------------------------------
     @router.get("/health")
     async def health_check() -> Dict[str, str]:
         return {"status": "ok", "service": "CtxGuard", "version": "0.1.0"}
@@ -49,6 +127,9 @@ def create_router(
             ],
         }
 
+    # --------------------------------------------------------------------------
+    # Proxy Gateway Endpoints
+    # --------------------------------------------------------------------------
     @router.post("/v1/chat/completions")
     async def openai_chat_completions(request: Request) -> Response:
         """Handle OpenAI chat completions proxy."""

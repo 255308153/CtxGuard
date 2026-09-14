@@ -190,6 +190,10 @@
   },
   "active": "93a54de857e27d07",
   "lastOpenFiles": [
+    "ctxguard/proxy/__pycache__/dashboard.cpython-313.pyc",
+    "tests/integration/__pycache__/test_dashboard.cpython-313-pytest-8.4.2.pyc",
+    "tests/integration/test_dashboard.py",
+    "ctxguard/proxy/dashboard.py",
     "tests/unit/__pycache__/test_onnx_tokenizer.cpython-313-pytest-8.4.2.pyc",
     "tests/unit/__pycache__/test_onnx_scorer.cpython-313-pytest-8.4.2.pyc",
     "benchmarks/__pycache__/synthetic_dataset.cpython-313.pyc",
@@ -197,10 +201,6 @@
     "benchmarks/__pycache__",
     "ctxguard/plugins/onnx/__pycache__/scorer.cpython-313.pyc",
     "ctxguard/plugins/onnx/__pycache__/tokenizer.cpython-313.pyc",
-    "ctxguard/plugins/onnx/__pycache__/model_loader.cpython-313.pyc",
-    "ctxguard/plugins/onnx/__pycache__/__init__.cpython-313.pyc",
-    "ctxguard/plugins/onnx/__pycache__",
-    "ctxguard/plugins/__pycache__/base.cpython-313.pyc",
     "DEVELOPMENT_PLAN.md"
   ]
 }
