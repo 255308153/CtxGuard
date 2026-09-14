@@ -24,8 +24,11 @@ from ctxguard.utils.token_counter import estimate_tokens_from_text
 
 
 def extract_session_and_project(request: Request, norm_req: NormalizedRequest) -> tuple[str, str, str]:
-    """Extract (session_id, project_name, prompt_preview) from request headers and message content."""
-    # 1. Project name extraction from headers
+    """Extract (session_id, project_name, prompt_preview) from request headers, client origin, and message content."""
+    import hashlib
+    import re
+
+    # 1. Inspect headers for explicit project and session metadata
     project_name = (
         request.headers.get("x-project-name")
         or request.headers.get("x-project")
@@ -33,48 +36,93 @@ def extract_session_and_project(request: Request, norm_req: NormalizedRequest) -
         or request.headers.get("x-cwd")
         or request.headers.get("x-workspace")
         or ""
-    )
+    ).strip()
 
-    # 2. Session ID extraction from headers
     session_id = (
         request.headers.get("x-session-id")
         or request.headers.get("x-conversation-id")
         or request.headers.get("x-chat-id")
+        or request.headers.get("session-id")
+        or request.headers.get("conversation-id")
+        or request.cookies.get("session_id")
+        or request.cookies.get("conversation_id")
         or ""
+    ).strip()
+
+    # 2. Extract latest user prompt preview & find the first user message for stable session fingerprinting
+    prompt_preview = ""
+    first_user_text = ""
+    full_text = ""
+
+    # Reverse iterate to find the most recent user prompt
+    for m in reversed(norm_req.messages):
+        if m.role == "user":
+            t = m.get_text_content().strip()
+            if t and not prompt_preview:
+                prompt_preview = re.sub(r"\s+", " ", t)[:120]
+                break
+
+    # Forward iterate to collect all text and find the initial user root prompt
+    for m in norm_req.messages:
+        text = m.get_text_content().strip()
+        if text:
+            if m.role == "user" and not first_user_text:
+                first_user_text = text[:300]
+            full_text += " " + text
+
+    # 3. Detect client origin (Pi Web / Browser vs CLI vs IDE)
+    user_agent = request.headers.get("user-agent", "").lower()
+    origin = request.headers.get("origin", "").lower()
+    referer = request.headers.get("referer", "").lower()
+
+    is_browser_web = (
+        "mozilla" in user_agent
+        or "chrome" in user_agent
+        or "safari" in user_agent
+        or "webkit" in user_agent
+        or bool(origin)
+        or bool(referer)
     )
 
-    # 3. Prompt preview and content heuristics
-    prompt_preview = ""
-    full_text = ""
-    for m in norm_req.messages:
-        text = m.get_text_content()
-        if m.role == "user" and not prompt_preview and text:
-            prompt_preview = text.strip().replace("\n", " ")[:120]
-        full_text += " " + text
-
-    # If project_name not in headers, inspect system/user text for path markers
+    # 4. Project name heuristics if not provided in headers
     if not project_name:
-        import re
-        cwd_match = re.search(r"(?:Working directory|cwd|workspace|Project root):\s*([/\w\-\.]+)", full_text, re.IGNORECASE)
+        # Check system prompt / context for working directory
+        cwd_match = re.search(r"(?:Working directory|workspace|cwd|Project root|Repo):\s*([/\w\-\.]+)", full_text, re.IGNORECASE)
         if cwd_match:
             raw_path = cwd_match.group(1).rstrip("/")
             project_name = raw_path.split("/")[-1]
         else:
-            path_match = re.search(r"/Users/[^/]+/([^/\s]+)/", full_text)
+            # Check user file paths in prompt
+            path_match = re.search(r"/(?:Users|home|root)/[^/\s]+/([^/\s\n]+)", full_text)
             if path_match:
-                project_name = path_match.group(1)
+                candidate = path_match.group(1)
+                if candidate.lower() in ("downloads", "desktop", "documents", "projects", "workspace", "code"):
+                    # Check next subfolder
+                    sub_match = re.search(r"/(?:Users|home|root)/[^/\s]+/(?:Downloads|Desktop|Documents|Projects|Workspace|Code)/([^/\s\n]+)", full_text, re.IGNORECASE)
+                    project_name = sub_match.group(1) if sub_match else candidate
+                else:
+                    project_name = candidate
+            elif is_browser_web:
+                project_name = "Pi-Web"
             else:
                 project_name = "Pi-Agent"
 
-    # If session_id not in headers, derive a stable session ID
+    # 5. Session ID derivation if not provided in headers
     if not session_id or session_id == "default":
-        import hashlib
-        if norm_req.messages:
-            first_msg = norm_req.messages[0].get_text_content()[:200]
-            short_hash = hashlib.sha256(first_msg.encode("utf-8")).hexdigest()[:8]
+        if first_user_text:
+            # Stable hash based on the root user message of the conversation thread
+            short_hash = hashlib.sha256(first_user_text.encode("utf-8")).hexdigest()[:8]
+            session_id = f"ses_{short_hash}"
+        elif norm_req.messages:
+            # Fallback to combined text hash
+            all_text_sample = "".join(m.get_text_content()[:100] for m in norm_req.messages[:3])
+            short_hash = hashlib.sha256(all_text_sample.encode("utf-8")).hexdigest()[:8]
             session_id = f"ses_{short_hash}"
         else:
             session_id = f"ses_{int(time.time()) % 10000:04d}"
+
+    if not prompt_preview:
+        prompt_preview = "(无用户提问文本)"
 
     return session_id, project_name, prompt_preview
 
@@ -315,6 +363,11 @@ def create_router(
 
         provider = upstream.resolve_provider(provider_name)
         headers = upstream.build_headers("openai", provider, client_headers)
+
+        # Normalize model aliases for upstream providers (e.g. deepseek-flash -> deepseek-chat)
+        if provider_name == "deepseek":
+            if upstream_payload.get("model") in ("deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"):
+                upstream_payload["model"] = "deepseek-chat"
 
         if norm_req.stream:
             stream_gen = upstream.forward_stream("v1/chat/completions", upstream_payload, headers, provider_name)
