@@ -1,13 +1,13 @@
 """Embedded Web Dashboard HTML template and UI renderer for CtxGuard."""
 
 def get_dashboard_html() -> str:
-    """Returns self-contained modern dark-mode responsive dashboard HTML with Session/Project/Model classification."""
+    """Returns self-contained modern dark-mode responsive dashboard HTML with Session/Project/Model classification and Memory Hub."""
     return """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CtxGuard 控制面板 | Context Optimization Gateway</title>
+  <title>CtxGuard 控制面板 | Context Optimization & Memory Gateway</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -39,7 +39,7 @@ def get_dashboard_html() -> str:
     code, pre, .font-mono { font-family: 'JetBrains Mono', monospace; }
     .glass { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(31, 41, 61, 0.8); }
     .glow-emerald { box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.2); }
-    .glow-blue { box-shadow: 0 0 25px -5px rgba(59, 130, 246, 0.2); }
+    .glow-purple { box-shadow: 0 0 25px -5px rgba(168, 85, 247, 0.2); }
   </style>
 </head>
 <body class="min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white">
@@ -128,23 +128,23 @@ def get_dashboard_html() -> str:
         <p class="mt-2 text-xs text-gray-500">已处理的端到端真实请求总数</p>
       </div>
 
-      <!-- Card 4 -->
-      <div class="glass p-5 rounded-2xl">
+      <!-- Card 4 (Memory & Storage) -->
+      <div class="glass p-5 rounded-2xl glow-purple">
         <div class="flex items-center justify-between">
-          <span class="text-xs font-semibold uppercase tracking-wider text-gray-400">网关优化延迟</span>
-          <span class="p-2 rounded-xl bg-amber-500/10 text-amber-400">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span class="text-xs font-semibold uppercase tracking-wider text-gray-400">🧠 持久化记忆指纹库</span>
+          <span class="p-2 rounded-xl bg-purple-500/10 text-purple-400">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
           </span>
         </div>
         <div class="mt-4 flex items-baseline justify-between">
-          <span id="stat-avg-latency" class="text-3xl font-extrabold text-white font-mono">0.00</span>
-          <span class="text-xs font-medium text-amber-400">ms 平均</span>
+          <span id="stat-memory-count" class="text-3xl font-extrabold text-purple-300 font-mono">0</span>
+          <span id="stat-memory-chars" class="text-xs font-semibold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md font-mono">0 Chars</span>
         </div>
-        <p class="mt-2 text-xs text-gray-500">纯算法与 C/Rust SIMD 极速优化</p>
+        <p class="mt-2 text-xs text-gray-500">跨会话内容指纹记忆与自进化知识库</p>
       </div>
     </section>
 
-    <!-- Classification & Multi-Dimension Filter Console (Project / Model / Session Grouping) -->
+    <!-- SECTION 1: Classification & Multi-Dimension Filter Console -->
     <section class="glass rounded-2xl p-6 space-y-5">
       
       <!-- Top Row: Section Header & View Mode Switcher -->
@@ -259,7 +259,78 @@ def get_dashboard_html() -> str:
 
     </section>
 
-    <!-- Interactive Workspace Grid -->
+    <!-- SECTION 2: 🧠 记忆中枢与自进化规则大盘 (Dedicated Memory Hub) -->
+    <section class="glass rounded-2xl p-6 space-y-6">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-dark-border">
+        <div>
+          <h2 class="text-base font-bold text-white flex items-center space-x-2">
+            <span class="p-1.5 rounded-lg bg-purple-500/20 text-purple-400">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+            </span>
+            <span>🧠 CtxGuard 记忆中枢与自进化知识库 (Memory & Knowledge Hub)</span>
+          </h2>
+          <p class="text-xs text-gray-400 mt-1">包含两大层级记忆：跨会话大段代码/内容 SHA-256 指纹记忆库，以及从历史交互中自进化提炼的避坑经验规则库</p>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <button onclick="triggerLearn()" class="px-3.5 py-1.5 rounded-xl bg-purple-500/20 border border-purple-500/40 text-xs font-semibold text-purple-300 hover:bg-purple-500/30 transition flex items-center space-x-1.5 shadow-sm">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            <span>一键触发自进化经验提炼</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        <!-- Left: Fingerprint Content Memory Store -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center space-x-1.5">
+              <span>📦 跨会话内容指纹记忆库 (`fingerprints`)</span>
+            </h3>
+            <span class="text-[11px] text-gray-400 font-mono">已持久化: <b id="memory-fp-count" class="text-emerald-400">0</b> 个块</span>
+          </div>
+
+          <div class="bg-dark-input rounded-xl border border-dark-border overflow-hidden">
+            <div class="max-h-64 overflow-y-auto divide-y divide-dark-border/40 font-mono text-xs">
+              <table class="w-full text-left">
+                <thead class="text-gray-500 uppercase text-[10px] bg-dark-card/60 sticky top-0">
+                  <tr>
+                    <th class="p-2.5">指纹哈希 (Hash ID)</th>
+                    <th class="p-2.5">长度</th>
+                    <th class="p-2.5">所属会话</th>
+                    <th class="p-2.5">记忆内容摘要</th>
+                  </tr>
+                </thead>
+                <tbody id="memory-fp-tbody" class="text-gray-300">
+                  <tr><td colspan="4" class="p-4 text-center text-gray-500 font-sans text-xs">暂无指纹记忆</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <p class="text-[11px] text-gray-500">当任意项目或会话再次出现相同内容时，网关直接通过指纹秒级 0-Token 复用。</p>
+        </div>
+
+        <!-- Right: Learned Evolution Rules & Incident Memory -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center space-x-1.5">
+              <span>🛡️ 自进化避坑经验规则库 (Learned Rules)</span>
+            </h3>
+            <span class="text-[11px] text-gray-400 font-mono">已生效: <b id="memory-rule-count" class="text-amber-400">0</b> 条规则</span>
+          </div>
+
+          <div id="memory-rules-container" class="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+            <div class="p-4 text-center text-gray-500 text-xs">正在加载经验规则库...</div>
+          </div>
+
+          <div id="learn-result" class="hidden p-3 rounded-xl bg-dark-input font-mono text-[11px] text-gray-300 border border-dark-border max-h-32 overflow-y-auto"></div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- SECTION 3: Interactive Workspace Grid -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
       
       <!-- Left Column: Interactive Compression Tester (2 Cols) -->
@@ -286,14 +357,14 @@ def get_dashboard_html() -> str:
                 <span>原始输入 (Raw Input)</span>
                 <span id="raw-token-badge" class="text-gray-400 font-mono">0 Tokens</span>
               </div>
-              <textarea id="test-input" rows="10" class="w-full rounded-xl bg-dark-input border border-dark-border p-3 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500 transition resize-none placeholder-gray-600" placeholder="在此粘贴测试文本、JSON 数组或报错日志..."></textarea>
+              <textarea id="test-input" rows="8" class="w-full rounded-xl bg-dark-input border border-dark-border p-3 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500 transition resize-none placeholder-gray-600" placeholder="在此粘贴测试文本、JSON 数组或报错日志..."></textarea>
             </div>
             <div>
               <div class="flex justify-between items-center text-xs font-semibold text-gray-400 mb-1.5">
                 <span>优化输出 (Optimized Payload)</span>
                 <span id="opt-token-badge" class="text-brand-400 font-mono">0 Tokens (0%)</span>
               </div>
-              <textarea id="test-output" rows="10" readonly class="w-full rounded-xl bg-dark-input/60 border border-dark-border p-3 text-xs font-mono text-emerald-300 focus:outline-none resize-none placeholder-gray-600" placeholder="点击下方按钮调用后端真实流水线处理..."></textarea>
+              <textarea id="test-output" rows="8" readonly class="w-full rounded-xl bg-dark-input/60 border border-dark-border p-3 text-xs font-mono text-emerald-300 focus:outline-none resize-none placeholder-gray-600" placeholder="点击下方按钮调用后端真实流水线处理..."></textarea>
             </div>
           </div>
 
@@ -341,26 +412,6 @@ def get_dashboard_html() -> str:
               <span class="font-semibold text-gray-300 block mb-1">OpenAI SDK (Python):</span>
               <pre class="p-2.5 rounded-lg bg-dark-input text-gray-300 border border-dark-border overflow-x-auto font-mono text-[11px]">client = OpenAI(base_url="http://127.0.0.1:8787/v1")</pre>
             </div>
-          </div>
-        </div>
-
-        <!-- Offline Self-Evolution & Rules Panel -->
-        <div class="glass rounded-2xl p-6">
-          <div class="flex items-center justify-between pb-3 border-b border-dark-border">
-            <h2 class="text-base font-bold text-white flex items-center space-x-2">
-              <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
-              <span>离线自进化分析触发</span>
-            </h2>
-          </div>
-
-          <p class="mt-3 text-xs text-gray-400">调用后端真实 `LoopDetector` 与 `CausalityExtractor` 提炼规则。</p>
-
-          <div class="mt-4 space-y-3">
-            <button onclick="triggerLearn()" class="w-full py-2.5 rounded-xl bg-dark-card border border-dark-border hover:border-amber-500/50 text-xs font-semibold text-amber-400 transition flex items-center justify-center space-x-1.5">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-              <span>执行离线自进化分析</span>
-            </button>
-            <div id="learn-result" class="hidden p-3 rounded-xl bg-dark-input font-mono text-[11px] text-gray-300 border border-dark-border max-h-40 overflow-y-auto"></div>
           </div>
         </div>
 
@@ -418,7 +469,7 @@ def get_dashboard_html() -> str:
   </div>
 
   <footer class="border-t border-dark-border/40 py-6 mt-12 text-center text-xs text-gray-500">
-    <p>CtxGuard Context Optimization Gateway • 零重型依赖 • 毫秒级极速优化 • SQLite WAL 存储驱动</p>
+    <p>CtxGuard Context Optimization & Memory Gateway • 零重型依赖 • 毫秒级极速优化 • SQLite WAL 存储驱动</p>
   </footer>
 
   <script>
@@ -545,8 +596,59 @@ export class UserController {
         globalRecentData = data.recent || [];
         populateDropdownsAndBadges();
         renderFilteredViews();
+
+        // Also fetch memory stats
+        refreshMemoryStats();
       } catch (err) {
         console.error('Failed to load stats:', err);
+      }
+    }
+
+    async function refreshMemoryStats() {
+      try {
+        const res = await fetch('/api/memory/stats');
+        const mData = await res.json();
+
+        document.getElementById('stat-memory-count').innerText = (mData.total_fingerprints || 0).toLocaleString();
+        document.getElementById('stat-memory-chars').innerText = `${(mData.total_memorized_chars || 0).toLocaleString()} 字符`;
+        document.getElementById('memory-fp-count').innerText = mData.total_fingerprints || 0;
+
+        // Render Memory Fingerprints table
+        const fpTbody = document.getElementById('memory-fp-tbody');
+        const fps = mData.recent_fingerprints || [];
+        if (fps.length > 0) {
+          fpTbody.innerHTML = fps.map(f => `
+            <tr class="hover:bg-dark-card/40">
+              <td class="p-2.5 text-purple-300 font-bold truncate max-w-[100px]" title="${f.hash_id}">#${f.hash_id.slice(0, 10)}</td>
+              <td class="p-2.5 text-gray-400 font-mono text-[11px]">${f.char_length} 字符</td>
+              <td class="p-2.5 text-gray-400 font-mono text-[11px] truncate max-w-[100px]" title="${f.session_id}">${f.session_id}</td>
+              <td class="p-2.5 text-gray-300 truncate max-w-[200px]" title="${escapeHtml(f.snippet)}">${escapeHtml(f.snippet)}</td>
+            </tr>
+          `).join('');
+        } else {
+          fpTbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500 font-sans text-xs">暂无指纹记忆，运行 Agent 读写文件后自动生成</td></tr>';
+        }
+
+        // Render Memory Rules
+        const rulesContainer = document.getElementById('memory-rules-container');
+        const rules = mData.learned_rules || [];
+        document.getElementById('memory-rule-count').innerText = rules.length;
+        if (rules.length > 0) {
+          rulesContainer.innerHTML = rules.map(r => `
+            <div class="p-3 rounded-xl bg-dark-input/80 border border-dark-border space-y-1 text-xs">
+              <div class="flex items-center justify-between">
+                <span class="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20 font-bold text-[11px] font-mono">
+                  📌 ${r.category}
+                </span>
+                <span class="text-[10px] text-gray-500">触发: ${r.trigger}</span>
+              </div>
+              <div class="text-gray-200 font-medium">${r.directive}</div>
+              <div class="text-[11px] text-gray-500 italic">💡 经验来源: ${r.rationale}</div>
+            </div>
+          `).join('');
+        }
+      } catch (err) {
+        console.error('Failed to load memory stats:', err);
       }
     }
 
@@ -894,7 +996,8 @@ export class UserController {
       try {
         const res = await fetch('/api/learn/run', { method: 'POST' });
         const data = await res.json();
-        resultBox.innerText = data.rendered_rules || '已完成分析，未发现重复死循环。';
+        resultBox.innerText = data.rendered_rules || '已完成分析，未发现重复死循环。已更新自进化避坑经验库。';
+        await refreshMemoryStats();
       } catch (err) {
         resultBox.innerText = '自进化分析失败: ' + err;
       }

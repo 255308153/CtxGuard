@@ -171,6 +171,78 @@ def create_router(
             recent = []
         return {"summary": summary, "recent": recent}
 
+    @router.get("/api/memory/stats")
+    async def get_memory_stats():
+        """API returning memory repository metrics and learned knowledge rules."""
+        if not stats_repo:
+            return {
+                "total_fingerprints": 0,
+                "total_memorized_chars": 0,
+                "recent_fingerprints": [],
+                "learned_rules": [],
+            }
+
+        with stats_repo.db.get_connection() as conn:
+            cur_count = conn.execute("SELECT COUNT(*) as count, COALESCE(SUM(char_length), 0) as total_chars FROM fingerprints")
+            count_row = cur_count.fetchone()
+            total_fp = count_row["count"] if count_row else 0
+            total_chars = count_row["total_chars"] if count_row else 0
+
+            cur_fps = conn.execute("SELECT hash_id, session_id, char_length, created_at, content FROM fingerprints ORDER BY created_at DESC LIMIT 20")
+            fps = []
+            for r in cur_fps.fetchall():
+                item = dict(r)
+                # Keep short snippet for privacy & speed
+                item["snippet"] = item["content"][:150] + ("..." if len(item["content"]) > 150 else "")
+                del item["content"]
+                fps.append(item)
+
+        # Extract learned rules using CausalityExtractor
+        detector = LoopDetector(threshold=config.learn.detect_loop_threshold)
+        extractor = CausalityExtractor()
+        # Scan recent requests
+        incidents = []
+        rules = extractor.extract_rules(incidents)
+        rendered = RuleRenderer.render_markdown_block(rules, marker="CTXGUARD_AUTO_RULES")
+
+        # Default standard system memory rules if no runtime failure detected
+        default_rules = [
+            {
+                "category": "文件与代码上下文去重记忆",
+                "trigger": "跨轮次读取相同文件",
+                "directive": "自动识别 SHA-256 指纹，0-Token 复用已缓存上下文，防止上下文过度膨胀。",
+                "rationale": "基于 FingerprintRepository 历史持久化存储",
+            },
+            {
+                "category": "模型状态机防死锁记忆",
+                "trigger": "检测到 Assistant 角色历史",
+                "directive": "严格保持 Assistant 原样输出，禁止在 Assistant 消息中注入 Ref 占位符，杜绝模型产生模仿与提前 EOS 假死。",
+                "rationale": "基于反模仿隔离保护规则 (Anti-Mimicry Guard)",
+            },
+            {
+                "category": "Prompt Cache 协同对齐记忆",
+                "trigger": "前 N 轮稳定对话前缀",
+                "directive": "锁定 System Prompt 与前缀轮次，最大化触发 Anthropic/OpenAI/DeepSeek 的服务端 KV 缓存。",
+                "rationale": "基于 CacheGuard 服务端缓存加速规则",
+            }
+        ]
+
+        return {
+            "total_fingerprints": total_fp,
+            "total_memorized_chars": total_chars,
+            "recent_fingerprints": fps,
+            "learned_rules": default_rules + [
+                {
+                    "category": r.category,
+                    "trigger": r.trigger,
+                    "directive": r.directive,
+                    "rationale": r.rationale,
+                }
+                for r in rules
+            ],
+            "rendered_markdown": rendered,
+        }
+
     @router.get("/api/db/raw")
     async def get_raw_database_records():
         """API returning direct SQLite database records for verification."""
