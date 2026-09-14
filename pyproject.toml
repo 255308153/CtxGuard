@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ctxguard"
+version = "0.1.0"
+description = "CtxGuard: Ultra-lightweight, zero-dependency LLM Context Optimization & Guardian Proxy"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "CtxGuard Team" }
+]
+keywords = ["llm", "context-compression", "prompt-cache", "proxy", "token-optimization"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.28.0",
+    "httpx>=0.27.0",
+    "orjson>=3.9.15",
+    "pyyaml>=6.0.1",
+]
+
+[project.optional-dependencies]
+onnx = [
+    "onnxruntime>=1.17.0",
+    "tokenizers>=0.15.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.scripts]
+ctxguard = "ctxguard.cli.main:main"
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+pythonpath = ["."]

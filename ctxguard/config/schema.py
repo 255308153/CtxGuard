@@ -1,0 +1,138 @@
+"""Configuration data structures for CtxGuard."""
+
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any
+
+
+@dataclass
+class ServerConfig:
+    host: str = "127.0.0.1"
+    port: int = 8080
+    timeout_seconds: int = 180
+    log_level: str = "INFO"
+    cors_origins: List[str] = field(default_factory=lambda: ["http://localhost:*", "http://127.0.0.1:*"])
+
+
+@dataclass
+class ProviderConfig:
+    base_url: str = ""
+    api_key: Optional[str] = None
+    api_key_env: Optional[str] = None
+
+
+@dataclass
+class UpstreamConfig:
+    default_provider: str = "anthropic"
+    providers: Dict[str, ProviderConfig] = field(default_factory=lambda: {
+        "anthropic": ProviderConfig(
+            base_url="https://api.anthropic.com",
+            api_key_env="ANTHROPIC_API_KEY",
+        ),
+        "openai": ProviderConfig(
+            base_url="https://api.openai.com",
+            api_key_env="OPENAI_API_KEY",
+        ),
+        "deepseek": ProviderConfig(
+            base_url="https://api.deepseek.com",
+            api_key_env="DEEPSEEK_API_KEY",
+        ),
+        "custom": ProviderConfig(
+            base_url="http://127.0.0.1:11434",
+            api_key="ollama",
+        ),
+    })
+
+
+@dataclass
+class ToolInjectionConfig:
+    enabled: bool = True
+    tool_name: str = "ctx_expand"
+    description: str = "Expand compressed context reference by ref_id if you need full details."
+
+
+@dataclass
+class DedupConfig:
+    enabled: bool = True
+    min_chars: int = 120
+    exclude_patterns: List[str] = field(default_factory=lambda: ["*.env*", "*secret*", "*credential*"])
+    tool_injection: ToolInjectionConfig = field(default_factory=ToolInjectionConfig)
+
+
+@dataclass
+class LogCleanerConfig:
+    enabled: bool = True
+    strip_ansi: bool = True
+    merge_progress_bars: bool = True
+    fold_repeated_stacktraces: bool = True
+    stacktrace_threshold: int = 3
+    custom_patterns: List[Dict[str, str]] = field(default_factory=list)
+
+
+@dataclass
+class JSONCompressorConfig:
+    enabled: bool = True
+    min_array_length: int = 3
+    ignore_keys: List[str] = field(default_factory=lambda: ["error"])
+
+
+@dataclass
+class StructuralCompressionConfig:
+    log_cleaner: LogCleanerConfig = field(default_factory=LogCleanerConfig)
+    json_compressor: JSONCompressorConfig = field(default_factory=JSONCompressorConfig)
+
+
+@dataclass
+class LevelConfig:
+    name: str = "level_1"
+    max_tokens: int = 16384
+    compression_mode: str = "lossless"
+    prune_ratio: float = 1.0
+    use_onnx: bool = False
+
+
+@dataclass
+class AdaptivePipelineConfig:
+    enabled: bool = True
+    levels: List[LevelConfig] = field(default_factory=lambda: [
+        LevelConfig(name="level_1", max_tokens=16384, compression_mode="lossless", prune_ratio=1.0),
+        LevelConfig(name="level_2", max_tokens=65536, compression_mode="lightweight", prune_ratio=0.85),
+        LevelConfig(name="level_3", max_tokens=200000, compression_mode="deep", prune_ratio=0.60, use_onnx=False),
+    ])
+    protected_keywords: List[str] = field(default_factory=lambda: [
+        "CRITICAL", "FATAL", "TODO", "FIXME", "EXCEPTION"
+    ])
+
+
+@dataclass
+class CacheGuardConfig:
+    freeze_system_prompt: bool = True
+    freeze_prefix_rounds: int = 2
+    auto_anthropic_cache_control: bool = True
+
+
+@dataclass
+class TargetFileConfig:
+    path: str
+    marker: str = "CTXGUARD_AUTO_RULES"
+
+
+@dataclass
+class LearnConfig:
+    storage_db: str = ".ctxguard.db"
+    detect_loop_threshold: int = 3
+    target_files: List[TargetFileConfig] = field(default_factory=lambda: [
+        TargetFileConfig(path="CLAUDE.local.md", marker="CTXGUARD_AUTO_RULES"),
+        TargetFileConfig(path=".cursorrules", marker="CTXGUARD_AUTO_RULES"),
+        TargetFileConfig(path=".windsurfrules", marker="CTXGUARD_AUTO_RULES"),
+    ])
+
+
+@dataclass
+class AppConfig:
+    server: ServerConfig = field(default_factory=ServerConfig)
+    upstream: UpstreamConfig = field(default_factory=UpstreamConfig)
+    dedup: DedupConfig = field(default_factory=DedupConfig)
+    structural_compression: StructuralCompressionConfig = field(default_factory=StructuralCompressionConfig)
+    adaptive_pipeline: AdaptivePipelineConfig = field(default_factory=AdaptivePipelineConfig)
+    cache_guard: CacheGuardConfig = field(default_factory=CacheGuardConfig)
+    learn: LearnConfig = field(default_factory=LearnConfig)

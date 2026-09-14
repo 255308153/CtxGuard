@@ -1,0 +1,125 @@
+# ==============================================================================
+# CtxGuard 统一用户配置文件模板 (ctxguard.yaml.example)
+#
+# 使用方法：
+#   1. 复制本文件为 `ctxguard.yaml`（当前工作区）或 `~/.ctxguard/ctxguard.yaml`（全局）
+#      cp ctxguard.yaml.example ctxguard.yaml
+#   2. 按需修改或取消注释下方配置项
+#   3. 启动网关：ctxguard start (自动优先加载 ./ctxguard.yaml)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. 代理服务与网络配置 (Server & Network)
+# ------------------------------------------------------------------------------
+server:
+  host: "127.0.0.1"               # 网关监听地址（生产隔离建议 127.0.0.1，局域网共享设为 0.0.0.0）
+  port: 8080                     # 网关监听端口
+  timeout_seconds: 180           # 上游 LLM 请求超时上限（秒）
+  log_level: "INFO"              # 日志等级：DEBUG | INFO | WARNING | ERROR
+  cors_origins:                  # 跨域白名单（默认允许本地常见客户端）
+    - "http://localhost:*"
+    - "http://127.0.0.1:*"
+
+# ------------------------------------------------------------------------------
+# 2. 上游大模型服务商与路由映射 (Upstream Providers)
+# ------------------------------------------------------------------------------
+upstream:
+  default_provider: "anthropic"  # 默认转发上游：anthropic | openai | deepseek | custom
+  providers:
+    anthropic:
+      base_url: "https://api.anthropic.com"
+      api_key_env: "ANTHROPIC_API_KEY"       # 从环境变量读取 Key（或直接配置 api_key: "sk-..."）
+    openai:
+      base_url: "https://api.openai.com"
+      api_key_env: "OPENAI_API_KEY"
+    deepseek:
+      base_url: "https://api.deepseek.com"
+      api_key_env: "DEEPSEEK_API_KEY"
+    custom:
+      base_url: "http://127.0.0.1:11434"      # 支持本地 Ollama / vLLM / LocalAI
+      api_key: "ollama"
+
+# ------------------------------------------------------------------------------
+# 3. Layer 2: 会话内容指纹去重器 (SHA-256 Dedup & sqz 模式)
+# ------------------------------------------------------------------------------
+dedup:
+  enabled: true                  # 是否启用内容指纹去重（大幅降低重复文件读写 Token）
+  min_chars: 120                 # 触发去重的最小字符阈值（短文本不进行指纹替换）
+  exclude_patterns:              # 排除模式（支持 glob 通配符，匹配路径或特定名称时不予去重）
+    - "*.env*"
+    - "*secret*"
+    - "*credential*"
+  tool_injection:
+    enabled: true                # 是否在工具列表中自动注入反查工具
+    tool_name: "ctx_expand"      # 注入给模型的工具名称
+    description: "Expand compressed context reference by ref_id if you need full details."
+
+# ------------------------------------------------------------------------------
+# 4. Layer 3: 结构感知清洗与折叠器 (Structural Compressor)
+# ------------------------------------------------------------------------------
+structural_compression:
+  log_cleaner:
+    enabled: true                # 开启终端与日志清洗
+    strip_ansi: true             # 移除 ANSI 颜色与光标控制码 (\x1b\[...)
+    merge_progress_bars: true    # 自动合并下载/构建进度条，仅保留最终进度
+    fold_repeated_stacktraces: true # 自动折叠重复出现的相同堆栈异常
+    stacktrace_threshold: 3      # 连续相同堆栈出现 >= 3 次时折叠为 [Repeated N times]
+    custom_patterns: []          # 用户自定义正则替换列表，例如：
+      # - pattern: '(?i)bearer\s+[a-z0-9_\-\.]+'
+      #   replacement: '[AUTH_TOKEN_MASKED]'
+
+  json_compressor:
+    enabled: true                # 开启 JSON 数组结构扁平化
+    min_array_length: 3          # 数组中相同结构的字典数量 >= 3 时触发 schema+rows 压缩
+    ignore_keys:                 # 绝对不折叠/保留原样的 JSON Key 白名单
+      - "error"
+      - "status"
+      - "message"
+
+# ------------------------------------------------------------------------------
+# 5. Layer 4: 自适应多档位剪枝流水线 (Adaptive Pruner)
+# ------------------------------------------------------------------------------
+adaptive_pipeline:
+  enabled: true                  # 是否开启动态档位调度
+  levels:
+    - name: "level_1"            # 档位 1: 短上下文 (< 16k tokens)
+      max_tokens: 16384
+      compression_mode: "lossless" # 纯无损清洗（仅执行 Dedup + Log + JSON 清洗）
+      prune_ratio: 1.0
+    - name: "level_2"            # 档位 2: 中长上下文 (16k ~ 64k tokens)
+      max_tokens: 65536
+      compression_mode: "lightweight"
+      prune_ratio: 0.85          # 轻度精简多余换行与占位符
+    - name: "level_3"            # 档位 3: 超长上下文 (> 64k tokens)
+      max_tokens: 200000
+      compression_mode: "deep"
+      prune_ratio: 0.60          # 深度剪枝
+      use_onnx: false            # 是否启用 ONNX INT8 微型模型剪枝（需安装 [onnx] 可选依赖）
+  protected_keywords:            # 剪枝时绝对受保护、禁止剔除的关键词/标识符
+    - "CRITICAL"
+    - "FATAL"
+    - "TODO"
+    - "FIXME"
+    - "EXCEPTION"
+
+# ------------------------------------------------------------------------------
+# 6. Layer 5: Prompt Cache 守护者 (Prefix Freezer)
+# ------------------------------------------------------------------------------
+cache_guard:
+  freeze_system_prompt: true     # 严格保卫 System Prompt 字节级绝对不变
+  freeze_prefix_rounds: 2        # 严格冻结前 N 轮历史对话（保障官方 Prompt Cache 命中）
+  auto_anthropic_cache_control: true # 自动为 Anthropic 协议请求在关键轮次注入 ephemeral cache 标记
+
+# ------------------------------------------------------------------------------
+# 7. Layer 6: 离线自进化与规则落盘引擎 (Offline Learn Engine)
+# ------------------------------------------------------------------------------
+learn:
+  storage_db: ".ctxguard.db"     # 本地单文件 SQLite 数据库路径
+  detect_loop_threshold: 3       # 连续 3 次相似工具调用判为死循环
+  target_files:                  # 离线自学习提炼规则后，幂等更新的目标规则文件列表
+    - path: "CLAUDE.local.md"
+      marker: "CTXGUARD_AUTO_RULES"
+    - path: ".cursorrules"
+      marker: "CTXGUARD_AUTO_RULES"
+    - path: ".windsurfrules"
+      marker: "CTXGUARD_AUTO_RULES"
