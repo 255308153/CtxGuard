@@ -12,12 +12,8 @@ class VirtualToolInjector:
         self.config = config
 
     def inject_schema(self, request: NormalizedRequest) -> None:
-        """Inject ctx_expand tool schema if enabled and tools are present."""
+        """Inject ctx_expand tool schema if enabled and not already present."""
         if not self.config.enabled:
-            return
-
-        # Only inject if client has tools defined
-        if not request.tools:
             return
 
         tool_name = self.config.tool_name
