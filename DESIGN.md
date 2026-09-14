@@ -80,7 +80,7 @@ graph TD
 ```
 
 ### 1. Layer 1: 透明代理网关（Ingress Layer）
-- **职责**：监听端口（如 `http://127.0.0.1:8080`），解析并归一化请求体。
+- **职责**：监听端口（如 `http://127.0.0.1:8787`），解析并归一化请求体。
 - **协议自适应**：自动识别 OpenAI / Anthropic 协议，转换为内部统一的 `NormalizedRequest`。
 
 ### 2. Layer 2: 会话指纹去重器（SHA-256 Dedup）
@@ -179,7 +179,7 @@ ctxguard/
 
 | 模块名称 | 允许用户自定义的关键参数 | 默认值 / 推荐策略 | 适用调整场景 |
 | :--- | :--- | :--- | :--- |
-| **1. 代理与路由 (Proxy & Upstream)** | 监听 Host/Port、上游 API Provider 映射、超时时间、CORS 白名单 | `127.0.0.1:8080`, Anthropic, 180s | 切换私有大模型端点（Ollama/vLLM/DeepSeek）或调整超时 |
+| **1. 代理与路由 (Proxy & Upstream)** | 监听 Host/Port、上游 API Provider 映射、超时时间、CORS 白名单 | `127.0.0.1:8787`, Anthropic, 180s | 切换私有大模型端点（Ollama/vLLM/DeepSeek）或调整超时 |
 | **2. 指纹去重 (Dedup & sqz)** | 触发去重最小字符数 (`min_chars`)、忽略路径正则 (`exclude_patterns`)、`ctx_expand` 工具名称与描述 | `min_chars: 120`, 排除 `*.env*` | 避免短文本哈希开销，或对密钥敏感文件进行安全排除 |
 | **3. 结构清洗 (Log & JSON)** | ANSI 脱敏、进度条合并、堆栈折叠阈值 (`stacktrace_threshold`)、JSON 最小折叠数组长度、保护 Key 白名单 | 堆栈重复 3 次折叠，JSON $\ge 3$ 且同结构折叠 | 自定义敏感字段脱敏、调整日志合并激进程度 |
 | **4. 语义剪枝 (Adaptive Pruner)** | 上下文分级阈值 (`levels`)、目标压缩比 (`prune_ratio`)、保护关键词白名单 (`protected_keywords`) | $<16k$ 无损，$16k\sim64k$ 轻度，$>64k$ 深度 | 超长上下文 RAG 场景、保护特定代码关键字/SQL 变量不被误删 |

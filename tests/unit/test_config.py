@@ -13,7 +13,7 @@ def test_default_config_is_valid():
     config = AppConfig()
     warnings = validate_config(config)
     assert isinstance(warnings, list)
-    assert config.server.port == 8080
+    assert config.server.port == 8787
     assert config.server.host == "127.0.0.1"
     assert config.upstream.default_provider == "anthropic"
 

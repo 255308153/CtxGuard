@@ -80,7 +80,7 @@ graph TD
 ```
 
 ### 1. Layer 1: 透明代理网关（Ingress Layer）
-- **职责**：监听端口（如 `http://127.0.0.1:8080`），解析并归一化请求体。
+- **职责**：监听端口（如 `http://127.0.0.1:8787`），解析并归一化请求体。
 - **协议自适应**：自动识别 OpenAI / Anthropic 协议，转换为内部统一的 `NormalizedRequest`。
 
 ### 2. Layer 2: 会话指纹去重器（SHA-256 Dedup）

@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Any
 @dataclass
 class ServerConfig:
     host: str = "127.0.0.1"
-    port: int = 8080
+    port: int = 8787
     timeout_seconds: int = 180
     log_level: str = "INFO"
     cors_origins: List[str] = field(default_factory=lambda: ["http://localhost:*", "http://127.0.0.1:*"])

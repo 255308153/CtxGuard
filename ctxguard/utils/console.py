@@ -36,7 +36,7 @@ class Console:
         sys.stderr.flush()
 
     @classmethod
-    def banner(cls, version: str = "0.1.0", host: str = "127.0.0.1", port: int = 8080) -> None:
+    def banner(cls, version: str = "0.1.0", host: str = "127.0.0.1", port: int = 8787) -> None:
         banner_text = rf"""
 {cls.CYAN}{cls.BOLD}  ____ _        ____                 _ 
  / ___| |_ _  _/ ___|_   _  __ _ _ __| |
