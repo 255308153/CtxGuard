@@ -122,17 +122,37 @@ class UpstreamClient:
         headers: Dict[str, str],
         provider_name: Optional[str] = None,
     ) -> AsyncIterator[bytes]:
-        """Stream request to upstream and yield raw byte chunks."""
+        """Stream request to upstream and yield raw byte chunks, ensuring errors are formatted cleanly."""
         client = self.get_client()
         provider = self.resolve_provider(provider_name)
         full_url = self.build_full_url(provider, url_path)
 
-        async with client.stream("POST", full_url, json=payload, headers=headers) as response:
-            if response.status_code != 200:
-                body = await response.aread()
-                yield body
-                return
+        try:
+            async with client.stream("POST", full_url, json=payload, headers=headers) as response:
+                if response.status_code != 200:
+                    body = await response.aread()
+                    error_text = body.decode("utf-8", errors="replace").strip()
+                    error_payload = {
+                        "error": {
+                            "message": error_text or f"Upstream error {response.status_code}",
+                            "type": "upstream_error",
+                            "code": response.status_code,
+                        }
+                    }
+                    import orjson
+                    yield f"data: {orjson.dumps(error_payload).decode('utf-8')}\n\ndata: [DONE]\n\n".encode("utf-8")
+                    return
 
-            async for chunk in response.aiter_bytes():
-                if chunk:
-                    yield chunk
+                async for chunk in response.aiter_bytes():
+                    if chunk:
+                        yield chunk
+        except Exception as exc:
+            import orjson
+            error_payload = {
+                "error": {
+                    "message": f"CtxGuard stream connection error: {str(exc)}",
+                    "type": "gateway_stream_error",
+                    "code": 502,
+                }
+            }
+            yield f"data: {orjson.dumps(error_payload).decode('utf-8')}\n\ndata: [DONE]\n\n".encode("utf-8")
