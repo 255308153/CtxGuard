@@ -157,7 +157,7 @@ def create_router(
         """API returning summary statistics and recent request history directly from SQLite."""
         if stats_repo:
             summary = stats_repo.get_summary()
-            recent = stats_repo.get_recent_requests(limit=100)
+            recent = stats_repo.get_recent_requests(limit=500)
         else:
             summary = {
                 "total_requests": 0,
@@ -373,6 +373,7 @@ def create_router(
                 {"id": "claude-sonnet-4-6", "object": "model", "owned_by": "antigravity"},
                 {"id": "grok-4.6", "object": "model", "owned_by": "xai"},
                 {"id": "deepseek-flash", "object": "model", "owned_by": "deepseek"},
+                {"id": "deepseek-v4-pro", "object": "model", "owned_by": "deepseek"},
                 {"id": "gpt-4o", "object": "model", "owned_by": "openai"},
             ],
         }
@@ -443,10 +444,12 @@ def create_router(
         provider = upstream.resolve_provider(provider_name)
         headers = upstream.build_headers("openai", provider, client_headers)
 
-        # Normalize model aliases for upstream providers (e.g. deepseek-flash -> deepseek-chat)
+        # Normalize model aliases for upstream providers.
+        # DeepSeek API now only supports "deepseek-flash" and "deepseek-v4-pro";
+        # map legacy aliases to "deepseek-flash" (do NOT map to the retired "deepseek-chat").
         if provider_name == "deepseek":
-            if upstream_payload.get("model") in ("deepseek-flash", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"):
-                upstream_payload["model"] = "deepseek-chat"
+            if upstream_payload.get("model") in ("deepseek-v4-flash", "deepseek-v4-flash-vision-exp"):
+                upstream_payload["model"] = "deepseek-flash"
 
         if norm_req.stream:
             stream_gen = upstream.forward_stream("v1/chat/completions", upstream_payload, headers, provider_name)
