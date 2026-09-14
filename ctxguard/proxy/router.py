@@ -28,11 +28,14 @@ def extract_session_and_project(request: Request, norm_req: NormalizedRequest) -
     import hashlib
     import re
 
-    # 1. Inspect headers for explicit project and session metadata
+    # 1. Inspect URL path parameter, headers, or client cookies for explicit project & session metadata
+    path_project = request.path_params.get("project") if hasattr(request, "path_params") and request.path_params else ""
     project_name = (
-        request.headers.get("x-project-name")
+        path_project
+        or request.headers.get("x-project-name")
         or request.headers.get("x-project")
         or request.headers.get("x-project-path")
+        or request.headers.get("x-headroom-project")
         or request.headers.get("x-cwd")
         or request.headers.get("x-workspace")
         or ""
@@ -285,6 +288,8 @@ def create_router(
         return {"status": "ok", "service": "CtxGuard", "version": "0.1.0"}
 
     @router.get("/v1/models")
+    @router.get("/p/{project}/v1/models")
+    @router.get("/p/{project}/models")
     async def list_models() -> Dict[str, Any]:
         """Simple model list endpoint for OpenAI client compatibility."""
         return {
@@ -305,6 +310,8 @@ def create_router(
     # --------------------------------------------------------------------------
     @router.post("/v1/chat/completions")
     @router.post("/chat/completions")
+    @router.post("/p/{project}/v1/chat/completions")
+    @router.post("/p/{project}/chat/completions")
     async def openai_chat_completions(request: Request) -> Response:
         """Handle OpenAI chat completions proxy."""
         start_time = time.perf_counter()
@@ -417,6 +424,8 @@ def create_router(
 
     @router.post("/v1/messages")
     @router.post("/messages")
+    @router.post("/p/{project}/v1/messages")
+    @router.post("/p/{project}/messages")
     async def anthropic_messages(request: Request) -> Response:
         """Handle Anthropic messages proxy."""
         start_time = time.perf_counter()
