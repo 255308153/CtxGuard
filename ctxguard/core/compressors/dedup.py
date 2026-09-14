@@ -76,6 +76,10 @@ class DedupCompressor(BaseCompressor):
         fingerprint_store = self.session_fingerprints[session_id]
 
         for msg in target_messages:
+            # NEVER compress assistant messages to prevent LLM prompt mimicry / EOS leak
+            if msg.role == "assistant":
+                continue
+
             text = msg.get_text_content()
             if not text or len(text) < self.config.min_chars:
                 continue
@@ -98,7 +102,10 @@ class DedupCompressor(BaseCompressor):
             if is_duplicate:
                 line_count = len(text.splitlines())
                 file_label = f"File: {filename_hint} | " if filename_hint else ""
-                ref_tag = f"[Ref:sha256_{short_sha} | {file_label}{line_count} lines unchanged. Use ctx_expand('{short_sha}') if details needed]"
+                if self.config.tool_injection.enabled:
+                    ref_tag = f"[Ref:sha256_{short_sha} | {file_label}{line_count} lines unchanged. Use ctx_expand('{short_sha}') if details needed]"
+                else:
+                    ref_tag = f"<!-- [Cached duplicate context: {file_label}{line_count} lines unchanged (sha256_{short_sha})] -->"
 
                 msg.set_text_content(ref_tag)
                 if self.name not in context.applied_compressors:

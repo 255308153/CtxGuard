@@ -34,7 +34,7 @@ dedup:
     - "*secret*"
     - "*credential*"
   tool_injection:
-    enabled: true
+    enabled: false
     tool_name: "ctx_expand"
     description: "Expand compressed context reference by ref_id if you need full details."
 
