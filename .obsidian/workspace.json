@@ -190,6 +190,7 @@
   },
   "active": "93a54de857e27d07",
   "lastOpenFiles": [
+    "ctxguard.yaml",
     "ctxguard/cli/__pycache__/cmd_learn.cpython-312.pyc",
     "ctxguard/cli/__pycache__/cmd_stats.cpython-312.pyc",
     "ctxguard/cli/__pycache__/cmd_config.cpython-312.pyc",
@@ -200,7 +201,6 @@
     "ctxguard/proxy/adapters/__pycache__/base.cpython-312.pyc",
     "ctxguard/proxy/adapters/__pycache__/__init__.cpython-312.pyc",
     "ctxguard/learn/__pycache__/atomic_writer.cpython-312.pyc",
-    "ctxguard/learn/__pycache__/rule_renderer.cpython-312.pyc",
     "DEVELOPMENT_PLAN.md"
   ]
 }

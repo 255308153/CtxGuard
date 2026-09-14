@@ -1,0 +1,87 @@
+server:
+  host: "127.0.0.1"
+  port: 8787
+  timeout_seconds: 180
+  log_level: "INFO"
+  cors_origins:
+    - "http://localhost:*"
+    - "http://127.0.0.1:*"
+
+upstream:
+  default_provider: "deepseek"
+  providers:
+    deepseek:
+      base_url: "https://api.deepseek.com"
+      api_key: "sk-bb17cefecc4142429f9b87f3a661a371"
+    anthropic:
+      base_url: "https://api.anthropic.com"
+      api_key_env: "ANTHROPIC_API_KEY"
+    openai:
+      base_url: "https://api.openai.com"
+      api_key_env: "OPENAI_API_KEY"
+    antigravity:
+      base_url: "http://127.0.0.1:8045/v1"
+      api_key: "sk-759b2996672f428ca32aed74d7448915"
+
+dedup:
+  enabled: true
+  min_chars: 120
+  exclude_patterns:
+    - "*.env*"
+    - "*secret*"
+    - "*credential*"
+  tool_injection:
+    enabled: true
+    tool_name: "ctx_expand"
+    description: "Expand compressed context reference by ref_id if you need full details."
+
+structural_compression:
+  log_cleaner:
+    enabled: true
+    strip_ansi: true
+    merge_progress_bars: true
+    fold_repeated_stacktraces: true
+    stacktrace_threshold: 3
+
+  json_compressor:
+    enabled: true
+    min_array_length: 3
+    ignore_keys:
+      - "error"
+
+adaptive_pipeline:
+  enabled: true
+  levels:
+    - name: "level_1"
+      max_tokens: 16384
+      compression_mode: "lossless"
+      prune_ratio: 1.0
+    - name: "level_2"
+      max_tokens: 65536
+      compression_mode: "lightweight"
+      prune_ratio: 0.85
+    - name: "level_3"
+      max_tokens: 200000
+      compression_mode: "deep"
+      prune_ratio: 0.60
+      use_onnx: false
+  protected_keywords:
+    - "CRITICAL"
+    - "FATAL"
+    - "TODO"
+    - "FIXME"
+    - "EXCEPTION"
+
+cache_guard:
+  freeze_system_prompt: true
+  freeze_prefix_rounds: 2
+  auto_anthropic_cache_control: true
+
+learn:
+  storage_db: ".ctxguard.db"
+  detect_loop_threshold: 3
+  target_files:
+    - path: "CLAUDE.local.md"
+      marker: "CTXGUARD_AUTO_RULES"
+    - path: ".cursorrules"
+      marker: "CTXGUARD_AUTO_RULES"

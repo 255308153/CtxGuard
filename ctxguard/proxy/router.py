@@ -194,6 +194,7 @@ def create_router(
     # Proxy Gateway Endpoints
     # --------------------------------------------------------------------------
     @router.post("/v1/chat/completions")
+    @router.post("/chat/completions")
     async def openai_chat_completions(request: Request) -> Response:
         """Handle OpenAI chat completions proxy."""
         start_time = time.perf_counter()
@@ -279,6 +280,7 @@ def create_router(
             )
 
     @router.post("/v1/messages")
+    @router.post("/messages")
     async def anthropic_messages(request: Request) -> Response:
         """Handle Anthropic messages proxy."""
         start_time = time.perf_counter()
