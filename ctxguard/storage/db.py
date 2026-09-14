@@ -25,18 +25,18 @@ class DatabaseManager:
         return conn
 
     def _init_db(self) -> None:
-        """Execute initial schema script."""
-        schema_path = Path(__file__).parent / "schema.sql"
-        if schema_path.exists():
-            schema_sql = schema_path.read_text(encoding="utf-8")
-        else:
-            schema_sql = """
+        """Execute initial schema script with safe column migrations."""
+        with self.get_connection() as conn:
+            # 1. Base tables
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 metadata TEXT DEFAULT '{}'
             );
+            """)
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS requests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL,
@@ -48,8 +48,11 @@ class DatabaseManager:
                 saved_tokens INTEGER NOT NULL,
                 saved_ratio REAL NOT NULL,
                 latency_ms REAL NOT NULL,
-                applied_compressors TEXT DEFAULT '[]'
+                applied_compressors TEXT DEFAULT '[]',
+                FOREIGN KEY(session_id) REFERENCES sessions(session_id)
             );
+            """)
+            conn.execute("""
             CREATE TABLE IF NOT EXISTS fingerprints (
                 hash_id TEXT PRIMARY KEY,
                 session_id TEXT NOT NULL,
@@ -57,8 +60,21 @@ class DatabaseManager:
                 char_length INTEGER NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-            """
+            """)
 
-        with self.get_connection() as conn:
-            conn.executescript(schema_sql)
+            # 2. Migrations for existing databases
+            try:
+                conn.execute("ALTER TABLE requests ADD COLUMN project_name TEXT DEFAULT 'default'")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE requests ADD COLUMN prompt_preview TEXT DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
+
+            # 3. Indexes
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_session ON requests(session_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_project ON requests(project_name);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_timestamp ON requests(timestamp);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_fingerprints_session ON fingerprints(session_id);")
             conn.commit()

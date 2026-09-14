@@ -23,6 +23,62 @@ from ctxguard.storage.repository_fingerprint import FingerprintRepository
 from ctxguard.utils.token_counter import estimate_tokens_from_text
 
 
+def extract_session_and_project(request: Request, norm_req: NormalizedRequest) -> tuple[str, str, str]:
+    """Extract (session_id, project_name, prompt_preview) from request headers and message content."""
+    # 1. Project name extraction from headers
+    project_name = (
+        request.headers.get("x-project-name")
+        or request.headers.get("x-project")
+        or request.headers.get("x-project-path")
+        or request.headers.get("x-cwd")
+        or request.headers.get("x-workspace")
+        or ""
+    )
+
+    # 2. Session ID extraction from headers
+    session_id = (
+        request.headers.get("x-session-id")
+        or request.headers.get("x-conversation-id")
+        or request.headers.get("x-chat-id")
+        or ""
+    )
+
+    # 3. Prompt preview and content heuristics
+    prompt_preview = ""
+    full_text = ""
+    for m in norm_req.messages:
+        text = m.get_text_content()
+        if m.role == "user" and not prompt_preview and text:
+            prompt_preview = text.strip().replace("\n", " ")[:120]
+        full_text += " " + text
+
+    # If project_name not in headers, inspect system/user text for path markers
+    if not project_name:
+        import re
+        cwd_match = re.search(r"(?:Working directory|cwd|workspace|Project root):\s*([/\w\-\.]+)", full_text, re.IGNORECASE)
+        if cwd_match:
+            raw_path = cwd_match.group(1).rstrip("/")
+            project_name = raw_path.split("/")[-1]
+        else:
+            path_match = re.search(r"/Users/[^/]+/([^/\s]+)/", full_text)
+            if path_match:
+                project_name = path_match.group(1)
+            else:
+                project_name = "Pi-Agent"
+
+    # If session_id not in headers, derive a stable session ID
+    if not session_id or session_id == "default":
+        import hashlib
+        if norm_req.messages:
+            first_msg = norm_req.messages[0].get_text_content()[:200]
+            short_hash = hashlib.sha256(first_msg.encode("utf-8")).hexdigest()[:8]
+            session_id = f"ses_{short_hash}"
+        else:
+            session_id = f"ses_{int(time.time()) % 10000:04d}"
+
+    return session_id, project_name, prompt_preview
+
+
 def create_router(
     config: AppConfig,
     pipeline: CompressionPipeline,
@@ -50,7 +106,7 @@ def create_router(
         """API returning summary statistics and recent request history directly from SQLite."""
         if stats_repo:
             summary = stats_repo.get_summary()
-            recent = stats_repo.get_recent_requests(limit=20)
+            recent = stats_repo.get_recent_requests(limit=30)
         else:
             summary = {
                 "total_requests": 0,
@@ -83,12 +139,13 @@ def create_router(
     async def simulate_live_proxy_request(request: Request):
         """Simulate a real agent conversational request, run through pipeline, and persist to SQLite."""
         body = await request.json()
-        model = body.get("model", "claude-3-5-sonnet-20241022")
+        model = body.get("model", "gemini-3.7-flash-high")
         prompt = body.get("prompt", "Analyze project structure and run build.")
         tool_output = body.get("tool_output", "[\n  {\"id\": 1, \"status\": \"ok\", \"latency\": 12.5},\n  {\"id\": 2, \"status\": \"ok\", \"latency\": 14.1}\n]")
+        project_name = body.get("project_name", "MathTutor-Agent")
 
         start_time = time.perf_counter()
-        session_id = f"session_{int(time.time())}"
+        session_id = f"ses_{int(time.time()) % 10000:04d}"
 
         messages = [
             Message(role="user", content=prompt),
@@ -114,11 +171,15 @@ def create_router(
                 optimized_tokens=req_ctx.optimized_tokens,
                 latency_ms=duration_ms,
                 applied_compressors=req_ctx.applied_compressors,
+                project_name=project_name,
+                prompt_preview=prompt[:120],
             )
 
         return {
             "status": "success",
             "session_id": session_id,
+            "project_name": project_name,
+            "prompt_preview": prompt[:120],
             "raw_tokens": req_ctx.original_tokens,
             "optimized_tokens": req_ctx.optimized_tokens,
             "saved_tokens": max(0, req_ctx.original_tokens - req_ctx.optimized_tokens),
@@ -181,12 +242,13 @@ def create_router(
         return {
             "object": "list",
             "data": [
+                {"id": "gemini-3.7-flash-high", "object": "model", "owned_by": "antigravity"},
+                {"id": "gemini-3.8-flash-high", "object": "model", "owned_by": "antigravity"},
                 {"id": "claude-3-5-sonnet-20241022", "object": "model", "owned_by": "anthropic"},
-                {"id": "claude-3-5-haiku-20241022", "object": "model", "owned_by": "anthropic"},
+                {"id": "claude-sonnet-4-6", "object": "model", "owned_by": "antigravity"},
+                {"id": "grok-4.6", "object": "model", "owned_by": "xai"},
+                {"id": "deepseek-flash", "object": "model", "owned_by": "deepseek"},
                 {"id": "gpt-4o", "object": "model", "owned_by": "openai"},
-                {"id": "gpt-4o-mini", "object": "model", "owned_by": "openai"},
-                {"id": "deepseek-chat", "object": "model", "owned_by": "deepseek"},
-                {"id": "deepseek-coder", "object": "model", "owned_by": "deepseek"},
             ],
         }
 
@@ -201,8 +263,10 @@ def create_router(
         body_bytes = await request.body()
         raw_body: Dict[str, Any] = orjson.loads(body_bytes) if body_bytes else {}
 
-        session_id = request.headers.get("x-session-id", "default")
-        norm_req = openai_adapter.parse_request(raw_body, session_id=session_id)
+        raw_session_id = request.headers.get("x-session-id", "default")
+        norm_req = openai_adapter.parse_request(raw_body, session_id=raw_session_id)
+        session_id, project_name, prompt_preview = extract_session_and_project(request, norm_req)
+        norm_req.session_id = session_id
 
         # 1. Virtual tool local execution check (0 upstream tokens!)
         local_tool_resp = virtual_tool_executor.check_and_execute(norm_req)
@@ -217,6 +281,8 @@ def create_router(
                     optimized_tokens=0,
                     latency_ms=duration_ms,
                     applied_compressors=["virtual_tool_local_expand"],
+                    project_name=project_name,
+                    prompt_preview=prompt_preview,
                 )
             return JSONResponse(
                 content=local_tool_resp.raw_response,
@@ -262,6 +328,8 @@ def create_router(
                     optimized_tokens=req_ctx.optimized_tokens,
                     latency_ms=duration_ms,
                     applied_compressors=req_ctx.applied_compressors,
+                    project_name=project_name,
+                    prompt_preview=prompt_preview,
                 )
             return StreamingResponse(
                 SSEStreamHandler.passthrough_stream(stream_gen),
@@ -284,6 +352,8 @@ def create_router(
                     optimized_tokens=req_ctx.optimized_tokens,
                     latency_ms=duration_ms,
                     applied_compressors=req_ctx.applied_compressors,
+                    project_name=project_name,
+                    prompt_preview=prompt_preview,
                 )
             return Response(
                 content=resp.content,
@@ -300,8 +370,10 @@ def create_router(
         body_bytes = await request.body()
         raw_body: Dict[str, Any] = orjson.loads(body_bytes) if body_bytes else {}
 
-        session_id = request.headers.get("x-session-id", "default")
-        norm_req = anthropic_adapter.parse_request(raw_body, session_id=session_id)
+        raw_session_id = request.headers.get("x-session-id", "default")
+        norm_req = anthropic_adapter.parse_request(raw_body, session_id=raw_session_id)
+        session_id, project_name, prompt_preview = extract_session_and_project(request, norm_req)
+        norm_req.session_id = session_id
 
         # 1. Virtual tool local execution check (0 upstream tokens!)
         local_tool_resp = virtual_tool_executor.check_and_execute(norm_req)
@@ -316,6 +388,8 @@ def create_router(
                     optimized_tokens=0,
                     latency_ms=duration_ms,
                     applied_compressors=["virtual_tool_local_expand"],
+                    project_name=project_name,
+                    prompt_preview=prompt_preview,
                 )
             return JSONResponse(
                 content=local_tool_resp.raw_response,
@@ -348,6 +422,8 @@ def create_router(
                     optimized_tokens=req_ctx.optimized_tokens,
                     latency_ms=duration_ms,
                     applied_compressors=req_ctx.applied_compressors,
+                    project_name=project_name,
+                    prompt_preview=prompt_preview,
                 )
             return StreamingResponse(
                 SSEStreamHandler.passthrough_stream(stream_gen),
@@ -370,6 +446,8 @@ def create_router(
                     optimized_tokens=req_ctx.optimized_tokens,
                     latency_ms=duration_ms,
                     applied_compressors=req_ctx.applied_compressors,
+                    project_name=project_name,
+                    prompt_preview=prompt_preview,
                 )
             return Response(
                 content=resp.content,

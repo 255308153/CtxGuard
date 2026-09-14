@@ -34,8 +34,10 @@ class StatsRepository:
         optimized_tokens: int,
         latency_ms: float,
         applied_compressors: List[str],
+        project_name: str = "default",
+        prompt_preview: str = "",
     ) -> None:
-        """Record a completed request metric."""
+        """Record a completed request metric with session, project, and preview."""
         saved_tokens = max(0, raw_tokens - optimized_tokens)
         saved_ratio = round((saved_tokens / max(1, raw_tokens)) * 100, 2)
 
@@ -53,12 +55,15 @@ class StatsRepository:
             conn.execute(
                 """
                 INSERT INTO requests (
-                    session_id, protocol, model, raw_tokens, optimized_tokens,
-                    saved_tokens, saved_ratio, latency_ms, applied_compressors
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    session_id, project_name, prompt_preview, protocol, model,
+                    raw_tokens, optimized_tokens, saved_tokens, saved_ratio,
+                    latency_ms, applied_compressors
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
+                    project_name,
+                    prompt_preview,
                     protocol,
                     model,
                     raw_tokens,
@@ -136,13 +141,14 @@ class StatsRepository:
 
         return total_dollars
 
-    def get_recent_requests(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Retrieve recent request records."""
+    def get_recent_requests(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Retrieve recent request records with project name and prompt preview."""
         with self.db.get_connection() as conn:
             cursor = conn.execute(
                 """
-                SELECT id, session_id, timestamp, protocol, model,
-                       raw_tokens, optimized_tokens, saved_tokens, saved_ratio, latency_ms
+                SELECT id, session_id, project_name, prompt_preview, timestamp,
+                       protocol, model, raw_tokens, optimized_tokens, saved_tokens,
+                       saved_ratio, latency_ms, applied_compressors
                 FROM requests
                 ORDER BY id DESC
                 LIMIT ?
@@ -150,4 +156,18 @@ class StatsRepository:
                 (limit,),
             )
             rows = cursor.fetchall()
-            return [dict(r) for r in rows]
+            result = []
+            for r in rows:
+                item = dict(r)
+                if not item.get("project_name"):
+                    item["project_name"] = "CtxGuard-Agent"
+                if not item.get("prompt_preview"):
+                    item["prompt_preview"] = ""
+                # Parse compressors json
+                comp_raw = item.get("applied_compressors", "[]")
+                try:
+                    item["applied_compressors"] = json.loads(comp_raw) if comp_raw else []
+                except Exception:
+                    item["applied_compressors"] = []
+                result.append(item)
+            return result

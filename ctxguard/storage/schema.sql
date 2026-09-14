@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
+    project_name TEXT DEFAULT 'default',
+    prompt_preview TEXT DEFAULT '',
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     protocol TEXT NOT NULL,
     model TEXT NOT NULL,
@@ -31,5 +33,6 @@ CREATE TABLE IF NOT EXISTS fingerprints (
 );
 
 CREATE INDEX IF NOT EXISTS idx_requests_session ON requests(session_id);
+CREATE INDEX IF NOT EXISTS idx_requests_project ON requests(project_name);
 CREATE INDEX IF NOT EXISTS idx_requests_timestamp ON requests(timestamp);
 CREATE INDEX IF NOT EXISTS idx_fingerprints_session ON fingerprints(session_id);
