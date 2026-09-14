@@ -90,6 +90,16 @@ class UpstreamClient:
 
         return headers
 
+    def build_full_url(self, provider: ProviderConfig, url_path: str) -> str:
+        """Construct normalized full URL avoiding duplicate /v1 segments."""
+        base = provider.base_url.rstrip("/")
+        path = url_path.lstrip("/")
+
+        if base.endswith("/v1") and path.startswith("v1/"):
+            path = path[3:].lstrip("/")
+
+        return f"{base}/{path}"
+
     async def forward_request(
         self,
         url_path: str,
@@ -100,8 +110,7 @@ class UpstreamClient:
         """Send non-streaming request to upstream."""
         client = self.get_client()
         provider = self.resolve_provider(provider_name)
-        base = provider.base_url.rstrip("/")
-        full_url = f"{base}/{url_path.lstrip('/')}"
+        full_url = self.build_full_url(provider, url_path)
 
         response = await client.post(full_url, json=payload, headers=headers)
         return response
@@ -116,8 +125,7 @@ class UpstreamClient:
         """Stream request to upstream and yield raw byte chunks."""
         client = self.get_client()
         provider = self.resolve_provider(provider_name)
-        base = provider.base_url.rstrip("/")
-        full_url = f"{base}/{url_path.lstrip('/')}"
+        full_url = self.build_full_url(provider, url_path)
 
         async with client.stream("POST", full_url, json=payload, headers=headers) as response:
             if response.status_code != 200:

@@ -13,6 +13,9 @@ upstream:
     deepseek:
       base_url: "https://api.deepseek.com"
       api_key: "sk-REDACTED-DEEPSEEK-KEY-0000000000"
+    grok:
+      base_url: "https://sub.yjxm1221.top/v1"
+      api_key: "sk-REDACTED-GROK-KEY-0000000000000000000000000000000000000000000000"
     anthropic:
       base_url: "https://api.anthropic.com"
       api_key_env: "ANTHROPIC_API_KEY"

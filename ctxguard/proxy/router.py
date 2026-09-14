@@ -233,7 +233,20 @@ def create_router(
         upstream_payload = openai_adapter.build_upstream_payload(req_ctx.request)
         client_headers = dict(request.headers)
 
-        provider_name = "deepseek" if "deepseek" in norm_req.model.lower() else "openai"
+        model_lower = norm_req.model.lower()
+        provider_name = request.headers.get("x-ctxguard-provider")
+        if not provider_name:
+            if "deepseek" in model_lower:
+                provider_name = "deepseek"
+            elif "grok" in model_lower:
+                provider_name = "grok"
+            elif "claude" in model_lower:
+                provider_name = "antigravity" if "antigravity" in config.upstream.providers else "anthropic"
+            elif "gemini" in model_lower:
+                provider_name = "antigravity" if "antigravity" in config.upstream.providers else "google"
+            else:
+                provider_name = config.upstream.default_provider
+
         provider = upstream.resolve_provider(provider_name)
         headers = upstream.build_headers("openai", provider, client_headers)
 

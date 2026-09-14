@@ -29,12 +29,14 @@ class OpenAIAdapter(BaseAdapter):
                 name = m.get("name")
                 tool_call_id = m.get("tool_call_id")
                 tool_calls = m.get("tool_calls")
+                meta = {k: v for k, v in m.items() if k not in ("role", "content", "name", "tool_call_id", "tool_calls")}
                 messages.append(Message(
                     role=role,
                     content=content,
                     name=name,
                     tool_call_id=tool_call_id,
                     tool_calls=tool_calls,
+                    metadata=meta,
                 ))
 
         return NormalizedRequest(
@@ -68,6 +70,8 @@ class OpenAIAdapter(BaseAdapter):
                 msg_dict["tool_call_id"] = m.tool_call_id
             if m.tool_calls:
                 msg_dict["tool_calls"] = m.tool_calls
+            if m.metadata:
+                msg_dict.update(m.metadata)
             payload["messages"].append(msg_dict)
 
         if request.tools is not None:
