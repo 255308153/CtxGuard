@@ -14,6 +14,7 @@ from ctxguard.proxy.router import create_router
 from ctxguard.storage.db import DatabaseManager
 from ctxguard.storage.repository_stats import StatsRepository
 from ctxguard.storage.repository_fingerprint import FingerprintRepository
+from ctxguard.storage.repository_graph import SQLiteGraphStore
 from ctxguard.utils.console import Console
 
 
@@ -23,6 +24,7 @@ def create_app(config: AppConfig) -> FastAPI:
     db_manager = DatabaseManager(config.learn.storage_db)
     stats_repo = StatsRepository(db_manager)
     fingerprint_repo = FingerprintRepository(db_manager)
+    graph_store = SQLiteGraphStore(db_manager)
 
     pipeline = CompressionPipeline(config, fingerprint_repo=fingerprint_repo)
     upstream = UpstreamClient(config.upstream, timeout_seconds=config.server.timeout_seconds)
@@ -77,6 +79,7 @@ def create_app(config: AppConfig) -> FastAPI:
         upstream=upstream,
         stats_repo=stats_repo,
         fingerprint_repo=fingerprint_repo,
+        graph_store=graph_store,
     )
     app.include_router(router)
 
@@ -87,5 +90,6 @@ def create_app(config: AppConfig) -> FastAPI:
     app.state.db_manager = db_manager
     app.state.stats_repo = stats_repo
     app.state.fingerprint_repo = fingerprint_repo
+    app.state.graph_store = graph_store
 
     return app

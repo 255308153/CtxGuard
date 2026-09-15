@@ -331,7 +331,145 @@ def get_dashboard_html() -> str:
       </div>
     </section>
 
-    <!-- SECTION 3: Interactive Workspace Grid -->
+    <!-- SECTION 3: 🕸️ 个人记忆知识图谱中枢 (Personal Knowledge Graph - SQLiteGraphStore) -->
+    <section class="glass rounded-2xl p-6 space-y-6">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-dark-border">
+        <div>
+          <h2 class="text-base font-bold text-white flex items-center space-x-2">
+            <span class="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            </span>
+            <span>🕸️ 个人记忆知识图谱 (Personal Knowledge Graph)</span>
+          </h2>
+          <p class="text-xs text-gray-400 mt-1">基于 SQLite 单文件图引擎 (SQLiteGraphStore)，具备 BFS 2-hop 多跳拓扑检索能力，跨会话记忆个人偏好、技术栈与工程属性</p>
+        </div>
+
+        <div class="flex items-center space-x-3 text-xs">
+          <span class="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-mono">
+            实体: <b id="kg-total-entities">0</b> | 关系边: <b id="kg-total-relations">0</b>
+          </span>
+          <button onclick="refreshGraphStats()" class="px-3 py-1.5 rounded-lg bg-dark-card border border-dark-border text-xs font-semibold hover:bg-gray-800 transition flex items-center space-x-1.5">
+            <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            <span>刷新图谱</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Graph Playground & Controls -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Left: Interactive BFS Subgraph Query Explorer (2 cols) -->
+        <div class="lg:col-span-2 space-y-4">
+          <div class="p-4 rounded-xl bg-dark-input/80 border border-dark-border space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <label class="text-xs font-bold text-gray-300 flex items-center space-x-1.5">
+                <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                <span>BFS 2-hop 关系子图检索体验台</span>
+              </label>
+              <div class="flex gap-1.5">
+                <button onclick="quickQueryGraph('User')" class="px-2 py-0.5 rounded bg-dark-card text-[11px] text-gray-300 border border-dark-border hover:bg-gray-800">查 User</button>
+                <button onclick="quickQueryGraph('pnpm')" class="px-2 py-0.5 rounded bg-dark-card text-[11px] text-gray-300 border border-dark-border hover:bg-gray-800">查 pnpm</button>
+                <button onclick="quickQueryGraph('Pi-Web')" class="px-2 py-0.5 rounded bg-dark-card text-[11px] text-gray-300 border border-dark-border hover:bg-gray-800">查 Pi-Web</button>
+              </div>
+            </div>
+
+            <div class="flex gap-2">
+              <input id="kg-search-input" onkeydown="if(event.key==='Enter') searchSubgraph()" type="text" placeholder="输入实体名或关键词 (如: User, pnpm, macOS, Pi-Web)..." class="flex-1 bg-dark-bg border border-dark-border rounded-xl px-3 py-2 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500 transition">
+              <button onclick="searchSubgraph()" class="px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/30 transition flex items-center space-x-1.5 shadow-sm shrink-0">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                <span>检索 2-hop 子图</span>
+              </button>
+            </div>
+
+            <!-- Subgraph Visual Result Box -->
+            <div id="kg-query-result" class="p-3.5 rounded-xl bg-dark-bg/90 border border-dark-border min-h-[110px] font-mono text-xs space-y-2">
+              <div class="text-gray-500 text-center py-6">在上方输入实体或点击快捷标签，体验 BFS 多跳关联拓扑检索与 Prompt 注入预览</div>
+            </div>
+          </div>
+
+          <!-- Entity List Table -->
+          <div class="bg-dark-input rounded-xl border border-dark-border overflow-hidden">
+            <div class="p-3 bg-dark-card/60 border-b border-dark-border flex items-center justify-between">
+              <span class="text-xs font-bold text-gray-300">已收录的个人记忆实体清单</span>
+              <div id="kg-type-badges" class="flex flex-wrap gap-1"></div>
+            </div>
+            <div class="max-h-56 overflow-y-auto">
+              <table class="w-full text-left text-xs font-mono">
+                <thead class="text-gray-500 uppercase text-[10px] bg-dark-card/40 sticky top-0">
+                  <tr>
+                    <th class="p-2.5">实体名称</th>
+                    <th class="p-2.5">类别</th>
+                    <th class="p-2.5">描述信息</th>
+                    <th class="p-2.5 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="kg-entities-tbody" class="divide-y divide-dark-border/40 text-gray-300">
+                  <tr><td colspan="4" class="p-4 text-center text-gray-500 font-sans text-xs">正在加载知识图谱实体...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Manual Memory & Relation Quick-Add Form (1 col) -->
+        <div class="space-y-4">
+          <div class="p-4 rounded-xl bg-dark-input/80 border border-dark-border space-y-3 text-xs">
+            <div class="font-bold text-gray-200 flex items-center space-x-1.5 pb-2 border-b border-dark-border/60">
+              <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              <span>手动添加个人偏好与关系</span>
+            </div>
+
+            <div class="space-y-1">
+              <label class="text-[11px] text-gray-400">实体名称 (Name):</label>
+              <input id="kg-form-name" type="text" placeholder="例如: Bun, PostgreSQL, 偏好中文" class="w-full bg-dark-bg border border-dark-border rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500">
+            </div>
+
+            <div class="space-y-1">
+              <label class="text-[11px] text-gray-400">实体类型 (Entity Type):</label>
+              <select id="kg-form-type" class="w-full bg-dark-bg border border-dark-border rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500">
+                <option value="preference">偏好 (preference)</option>
+                <option value="technology">技术栈 (technology)</option>
+                <option value="environment">开发环境 (environment)</option>
+                <option value="project">工程项目 (project)</option>
+                <option value="person">人物身份 (person)</option>
+                <option value="concept">核心概念 (concept)</option>
+              </select>
+            </div>
+
+            <div class="space-y-1">
+              <label class="text-[11px] text-gray-400">描述信息 (Description):</label>
+              <input id="kg-form-desc" type="text" placeholder="简短描述，例如: 极速打包运行环境" class="w-full bg-dark-bg border border-dark-border rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500">
+            </div>
+
+            <div class="space-y-1">
+              <label class="text-[11px] text-gray-400">与 User 建立关系 (Relation to User):</label>
+              <select id="kg-form-rel" class="w-full bg-dark-bg border border-dark-border rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500">
+                <option value="prefers">prefers (偏好使用)</option>
+                <option value="operates_on">operates_on (运行环境)</option>
+                <option value="develops">develops (开发/维护)</option>
+                <option value="requires">requires (强制要求)</option>
+                <option value="none">暂不建边 (仅添加独立节点)</option>
+              </select>
+            </div>
+
+            <button onclick="submitNewEntity()" class="w-full mt-2 py-2 rounded-xl bg-emerald-500 text-gray-950 font-bold hover:bg-emerald-400 transition text-xs shadow-md shadow-emerald-500/20">
+              入库知识图谱
+            </button>
+          </div>
+
+          <div class="p-3.5 rounded-xl bg-dark-input/40 border border-dark-border text-gray-400 text-[11px] space-y-1.5">
+            <div class="text-gray-300 font-semibold flex items-center space-x-1">
+              <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              <span>自动学习说明：</span>
+            </div>
+            <p>除了手动在此添加，当您在日常提问中提到“以后请用 pnpm”、“我的系统是 macOS”时，网关也会**单次前向无感自动提炼**入库，并自动关联到大模型 System Prompt 中。</p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- SECTION 4: Interactive Workspace Grid -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
       
       <!-- Left Column: Interactive Compression Tester (2 Cols) -->
@@ -615,8 +753,9 @@ export class UserController {
         populateDropdownsAndBadges();
         renderFilteredViews();
 
-        // Also fetch memory stats
+        // Also fetch memory stats and graph stats
         refreshMemoryStats();
+        refreshGraphStats();
       } catch (err) {
         console.error('Failed to load stats:', err);
       }
@@ -667,6 +806,177 @@ export class UserController {
         }
       } catch (err) {
         console.error('Failed to load memory stats:', err);
+      }
+    }
+
+    async function refreshGraphStats() {
+      try {
+        const resStats = await fetch('/api/graph/stats');
+        const gData = await resStats.json();
+        setText('kg-total-entities', gData.total_entities || 0);
+        setText('kg-total-relations', gData.total_relationships || 0);
+
+        // Render type badges
+        const typeBadges = document.getElementById('kg-type-badges');
+        if (typeBadges && gData.entity_types) {
+          typeBadges.innerHTML = Object.entries(gData.entity_types).map(([k, v]) => `
+            <span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[10px] font-mono">
+              ${k}: ${v}
+            </span>
+          `).join('');
+        }
+
+        // Fetch entities list
+        const resEntities = await fetch('/api/graph/entities');
+        const entData = await resEntities.json();
+        const tbody = document.getElementById('kg-entities-tbody');
+        if (tbody) {
+          const ents = entData.entities || [];
+          if (ents.length > 0) {
+            tbody.innerHTML = ents.map(e => `
+              <tr class="hover:bg-dark-card/40">
+                <td class="p-2.5 font-bold text-emerald-300 truncate max-w-[120px]" title="${e.name}">
+                  <span class="cursor-pointer hover:underline" onclick="quickQueryGraph('${escapeHtml(e.name)}')">
+                    ${escapeHtml(e.name)}
+                  </span>
+                </td>
+                <td class="p-2.5 text-purple-300 font-mono text-[11px]">${escapeHtml(e.entity_type)}</td>
+                <td class="p-2.5 text-gray-300 font-sans truncate max-w-[220px]" title="${escapeHtml(e.description || '')}">
+                  ${escapeHtml(e.description || '(暂无描述)')}
+                </td>
+                <td class="p-2.5 text-right space-x-1">
+                  <button onclick="quickQueryGraph('${escapeHtml(e.name)}')" class="px-2 py-0.5 rounded bg-dark-card hover:bg-gray-800 text-[10px] text-blue-300 border border-dark-border">2-hop</button>
+                  <button onclick="deleteGraphEntity('${e.id}')" class="px-2 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20 text-[10px] text-red-400 border border-red-500/20">删</button>
+                </td>
+              </tr>
+            `).join('');
+          } else {
+            tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500 font-sans text-xs">暂无实体记录</td></tr>';
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load graph stats:', err);
+      }
+    }
+
+    async function searchSubgraph() {
+      const qInput = document.getElementById('kg-search-input');
+      const query = (qInput ? qInput.value : '').trim();
+      const resBox = document.getElementById('kg-query-result');
+      if (!query) {
+        if (resBox) resBox.innerHTML = '<div class="text-gray-500 text-center py-6">请输入实体关键词进行检索</div>';
+        return;
+      }
+
+      if (resBox) resBox.innerHTML = '<div class="text-emerald-400 text-center py-6 animate-pulse">正在执行 BFS 2-hop 子图遍历...</div>';
+
+      try {
+        const res = await fetch(`/api/graph/query?q=${encodeURIComponent(query)}&hops=2`);
+        const data = await res.json();
+        const entities = data.entities || [];
+        const rels = data.relationships || [];
+
+        if (entities.length === 0) {
+          resBox.innerHTML = `<div class="text-amber-400 text-center py-4">未检索到与 "${escapeHtml(query)}" 关联的知识实体，请尝试添加新实体。</div>`;
+          return;
+        }
+
+        const entMap = {};
+        entities.forEach(e => { entMap[e.id] = e; });
+
+        let html = `
+          <div class="flex items-center justify-between border-b border-dark-border/60 pb-2">
+            <span class="text-emerald-300 font-bold">🎯 命中子图: ${entities.length} 个实体节点, ${rels.length} 条关系边</span>
+            <span class="text-[10px] text-gray-400">遍历深度: 2-hop (BFS)</span>
+          </div>
+          <div class="space-y-1.5 pt-1">
+        `;
+
+        if (rels.length > 0) {
+          html += '<div class="text-[11px] text-gray-400 font-semibold mb-1">🔗 拓扑关系链条:</div>';
+          rels.forEach(r => {
+            const src = entMap[r.source_id] ? entMap[r.source_id].name : r.source_id;
+            const tgt = entMap[r.target_id] ? entMap[r.target_id].name : r.target_id;
+            html += `
+              <div class="flex items-center space-x-2 text-xs py-1 px-2 rounded-lg bg-dark-input/60 border border-dark-border/40">
+                <span class="text-emerald-300 font-bold"># ${escapeHtml(src)}</span>
+                <span class="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] font-mono border border-purple-500/30">${escapeHtml(r.relation_type)}</span>
+                <span class="text-blue-300 font-bold">➔ ${escapeHtml(tgt)}</span>
+              </div>
+            `;
+          });
+        } else {
+          html += '<div class="text-gray-400 text-xs italic">该实体目前为独立节点，暂未与其他实体建立关系边。</div>';
+        }
+
+        if (data.context_markdown) {
+          html += `
+            <div class="mt-2 pt-2 border-t border-dark-border/40">
+              <div class="text-[10px] text-gray-400 font-mono mb-1">注入大模型的 Prompt 知识块 (Prompt Injection Preview):</div>
+              <pre class="p-2 rounded bg-dark-bg text-emerald-400/90 text-[11px] whitespace-pre-wrap font-mono">${escapeHtml(data.context_markdown)}</pre>
+            </div>
+          `;
+        }
+
+        html += '</div>';
+        resBox.innerHTML = html;
+      } catch (err) {
+        if (resBox) resBox.innerHTML = `<div class="text-red-400 text-center py-4">检索失败: ${err}</div>`;
+      }
+    }
+
+    function quickQueryGraph(name) {
+      const qInput = document.getElementById('kg-search-input');
+      if (qInput) qInput.value = name;
+      searchSubgraph();
+    }
+
+    async function submitNewEntity() {
+      const name = (document.getElementById('kg-form-name').value || '').trim();
+      const entity_type = document.getElementById('kg-form-type').value;
+      const description = (document.getElementById('kg-form-desc').value || '').trim();
+      const relation_to_user = document.getElementById('kg-form-rel').value;
+
+      if (!name) {
+        alert('请输入实体名称！');
+        return;
+      }
+
+      try {
+        await fetch('/api/graph/entity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, entity_type, description })
+        });
+
+        if (relation_to_user && relation_to_user !== 'none') {
+          await fetch('/api/graph/relationship', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              source_name: 'User',
+              target_name: name,
+              relation_type: relation_to_user
+            })
+          });
+        }
+
+        document.getElementById('kg-form-name').value = '';
+        document.getElementById('kg-form-desc').value = '';
+        await refreshGraphStats();
+        quickQueryGraph(name);
+      } catch (err) {
+        alert('添加失败: ' + err);
+      }
+    }
+
+    async function deleteGraphEntity(id) {
+      if (!confirm('确定要删除该实体及其关联关系吗？')) return;
+      try {
+        await fetch(`/api/graph/entity/${id}`, { method: 'DELETE' });
+        await refreshGraphStats();
+      } catch (err) {
+        alert('删除失败: ' + err);
       }
     }
 
