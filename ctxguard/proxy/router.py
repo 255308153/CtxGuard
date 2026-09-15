@@ -20,6 +20,10 @@ from ctxguard.proxy.upstream import UpstreamClient
 from ctxguard.proxy.sse import SSEStreamHandler
 from ctxguard.storage.repository_stats import StatsRepository
 from ctxguard.storage.repository_fingerprint import FingerprintRepository
+from ctxguard.storage.repository_graph import SQLiteGraphStore
+from ctxguard.storage.graph_models import Entity, Relationship, RelationshipDirection
+from ctxguard.core.memory.graph_engine import MemoryGraphEngine
+from ctxguard.core.context import RequestContext
 from ctxguard.utils.token_counter import estimate_tokens_from_text
 
 
@@ -136,12 +140,14 @@ def create_router(
     upstream: UpstreamClient,
     stats_repo: Optional[StatsRepository] = None,
     fingerprint_repo: Optional[FingerprintRepository] = None,
+    graph_store: Optional[SQLiteGraphStore] = None,
 ) -> APIRouter:
     router = APIRouter()
 
     openai_adapter = OpenAIAdapter()
     anthropic_adapter = AnthropicAdapter()
     virtual_tool_executor = VirtualToolExecutor(fingerprint_repo=fingerprint_repo)
+    graph_engine = MemoryGraphEngine(graph_store) if graph_store else None
 
     # --------------------------------------------------------------------------
     # Web Dashboard Endpoints
@@ -257,6 +263,86 @@ def create_router(
             fp_rows = [dict(r) for r in cur2.fetchall()]
 
         return {"requests": requests_rows, "fingerprints": fp_rows}
+
+    # --------------------------------------------------------------------------
+    # Personal Knowledge Graph Endpoints
+    # --------------------------------------------------------------------------
+    @router.get("/api/graph/stats")
+    async def get_graph_stats():
+        """Return knowledge graph summary stats: total entities, relations, types."""
+        if not graph_store:
+            return {"total_entities": 0, "total_relationships": 0, "entity_types": {}, "top_entities": []}
+        return graph_store.get_stats()
+
+    @router.get("/api/graph/entities")
+    async def get_graph_entities(type: Optional[str] = None, limit: int = 100):
+        """List entities in the personal knowledge graph."""
+        if not graph_store:
+            return {"entities": []}
+        entities = graph_store.list_entities(entity_type=type, limit=limit)
+        return {"entities": [e.to_dict() for e in entities]}
+
+    @router.get("/api/graph/query")
+    async def query_subgraph_api(q: str, hops: int = 2):
+        """Run BFS multi-hop subgraph query for a given entity or keyword."""
+        if not graph_store or not q.strip():
+            return {"entities": [], "relationships": [], "context_markdown": ""}
+        subgraph = graph_store.query_subgraph([q.strip()], max_hops=min(3, max(1, hops)))
+        return {
+            "entities": [e.to_dict() for e in subgraph.entities],
+            "relationships": [r.to_dict() for r in subgraph.relationships],
+            "context_markdown": subgraph.format_as_context(),
+        }
+
+    @router.post("/api/graph/entity")
+    async def create_graph_entity(request: Request):
+        """Create or update an entity manually."""
+        if not graph_store:
+            return JSONResponse(status_code=503, content={"error": "Graph store disabled"})
+        body = await request.json()
+        name = body.get("name", "").strip()
+        if not name:
+            return JSONResponse(status_code=400, content={"error": "Entity name required"})
+        entity = graph_store.add_entity(Entity(
+            name=name,
+            entity_type=body.get("entity_type", "preference"),
+            description=body.get("description", ""),
+            properties=body.get("properties", {}),
+        ))
+        return {"status": "success", "entity": entity.to_dict()}
+
+    @router.post("/api/graph/relationship")
+    async def create_graph_relationship(request: Request):
+        """Create or update a relationship between two entities."""
+        if not graph_store:
+            return JSONResponse(status_code=503, content={"error": "Graph store disabled"})
+        body = await request.json()
+        src_name = body.get("source_name", "").strip()
+        tgt_name = body.get("target_name", "").strip()
+        rel_type = body.get("relation_type", "related_to").strip()
+
+        if not src_name or not tgt_name:
+            return JSONResponse(status_code=400, content={"error": "source_name and target_name required"})
+
+        # Resolve or auto-create entities
+        src_e = graph_store.get_entity_by_name(src_name) or graph_store.add_entity(Entity(name=src_name, entity_type="concept"))
+        tgt_e = graph_store.get_entity_by_name(tgt_name) or graph_store.add_entity(Entity(name=tgt_name, entity_type="preference"))
+
+        rel = graph_store.add_relationship(Relationship(
+            source_id=src_e.id,
+            target_id=tgt_e.id,
+            relation_type=rel_type,
+            weight=float(body.get("weight", 1.0)),
+        ))
+        return {"status": "success", "relationship": rel.to_dict()}
+
+    @router.delete("/api/graph/entity/{entity_id}")
+    async def delete_graph_entity(entity_id: str):
+        """Delete an entity and cascade its connected relationships."""
+        if not graph_store:
+            return JSONResponse(status_code=503, content={"error": "Graph store disabled"})
+        deleted = graph_store.delete_entity(entity_id)
+        return {"status": "success" if deleted else "not_found", "deleted": deleted}
 
     @router.post("/api/simulate/request")
     async def simulate_live_proxy_request(request: Request):
@@ -420,6 +506,14 @@ def create_router(
                 },
             )
 
+        # 1.5 Personal Knowledge Graph Injection & Learning
+        if graph_engine:
+            try:
+                temp_ctx = RequestContext(request=norm_req)
+                graph_engine.inject_graph_context(temp_ctx)
+            except Exception as ge_err:
+                pass
+
         # 2. Process through Compression Pipeline
         req_ctx = await pipeline.process(norm_req)
 
@@ -535,6 +629,14 @@ def create_router(
                     "X-CtxGuard-Process-Time-Ms": f"{duration_ms:.2f}",
                 },
             )
+
+        # 1.5 Personal Knowledge Graph Injection & Learning
+        if graph_engine:
+            try:
+                temp_ctx = RequestContext(request=norm_req)
+                graph_engine.inject_graph_context(temp_ctx)
+            except Exception as ge_err:
+                pass
 
         # 2. Process through Compression Pipeline
         req_ctx = await pipeline.process(norm_req)
