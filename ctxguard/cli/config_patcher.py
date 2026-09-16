@@ -36,8 +36,8 @@ class AgentConfigAutoDetector:
         ]
 
     @classmethod
-    def discover_and_save_upstreams(cls) -> Dict[str, str]:
-        """Reads original upstream URLs configured by user in agents and remembers them."""
+    def discover_and_save_upstreams(cls, patch_configs: bool = True) -> Dict[str, str]:
+        """Reads original upstream URLs, remembers them, and automatically patches configs to point to proxy."""
         discovered = {}
         for target in cls.get_known_agent_configs():
             path: Path = target["path"]
@@ -45,11 +45,21 @@ class AgentConfigAutoDetector:
                 try:
                     with open(path, "r", encoding="utf-8") as f:
                         data = json.load(f)
+                    
+                    # 1. Discover original upstream
                     for k in target["url_keys"]:
                         val = data.get(k)
                         if val and "127.0.0.1:8787" not in val and "localhost:8787" not in val:
                             discovered[target["name"]] = val
                             break
+
+                    # 2. Automatically patch config to point to CtxGuard proxy
+                    if patch_configs:
+                        patch_key = target.get("patch_key")
+                        if patch_key:
+                            data[patch_key] = "http://127.0.0.1:8787"
+                            with open(path, "w", encoding="utf-8") as f:
+                                json.dump(data, f, indent=2)
                 except Exception:
                     pass
         if discovered:
