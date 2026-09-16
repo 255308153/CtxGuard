@@ -214,6 +214,28 @@ ctxguard env --patch
 
 ---
 
+## ⚙️ 模块开关与高级配置 (ctxguard.yaml)
+
+CtxGuard 各核心引擎支持在 `ctxguard.yaml` 中进行细粒度的独立开关控制：
+
+```yaml
+# 🧠 1. 记忆图谱与偏好召回开关 (Memory & Piggyback Extraction)
+piggyback_extraction:
+  enabled: true       # 设为 false 则关闭偏好记忆提取与上下文动态注入
+
+# 🛡️ 2. 自进化与规则同步开关 (Autonomous Learning & Rule Sync)
+learn:
+  enabled: true       # 设为 false 则停止死循环扫描与项目规则文件自动修改
+  detect_loop_threshold: 3
+
+# ✂️ 3. 输出端 Token 塑造与降噪 (Output Shaper)
+output_shaper:
+  enabled: false      # 设为 true 开启输出端客套话修剪与思考预算动态降级
+  level: 2            # 1: 轻度精简 | 2: 推荐标准 | 3: 高度精炼 | 4: 极限代码
+```
+
+---
+
 ## 🛠️ CLI 命令速查
 
 ```bash
