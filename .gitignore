@@ -45,9 +45,12 @@ htmlcov/
 
 # CtxGuard runtime storage & temp files
 .ctxguard.db*
-.tmp_rules_*
+.tmp_*
 *.db
 *.sqlite3
+*.db-journal
+*.db-wal
+.ctxguard/
 
 # IDE & OS files
 .DS_Store
@@ -55,6 +58,9 @@ htmlcov/
 .idea/
 *.swp
 *~
+.obsidian/
+.claude/
+
 # CtxGuard auto-generated local rule file
 CLAUDE.local.md
 
@@ -64,23 +70,19 @@ ctxguard.local.yaml
 .env
 .env.*
 
-# Local databases and memory files
-*.db
-*.db-journal
-*.db-wal
-.ctxguard.db
-:memory:
-.ctxguard/
-.obsidian/
+# Large binary / model files
+*.onnx
 
-# Exclude all docs and resume output from github tracking
-docs/
-*.md
-!README.md
-!USAGE.md
-!DEVELOPMENT_GUIDE.md
-!pyproject.toml
+# Screenshots & outputs
+ScreenShot_*.png
 output/
 resume/
 面试问答/
-ScreenShot_*.png
+sqlite:
+
+# Exclude internal/personal docs
+docs/
+
+# External reference clones (keep only references/README.md)
+references/*/
+!references/README.md
