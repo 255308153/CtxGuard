@@ -43,6 +43,8 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 
 ![CtxGuard 1.0 System Architecture](assets/architecture_diagram.png)
 
+*注：架构图由 Python Diagrams-as-Code 脚本自动渲染生成（源码见 `docs/generate_diagram.py`）。*
+
 </div>
 
 ---
