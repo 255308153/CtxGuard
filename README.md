@@ -149,23 +149,31 @@ ctxguard start --port 8787
 
 ### 2. 客户端生态接入
 
-#### 方式一：终端 Shell 快速注入（推荐 CLI 工具使用）
+#### 方式一：Wrap 一键直接拉起 Agent（最推荐，零配置）
+```bash
+# 自动在后台启动网关、自动感知原有中转地址并直接进入 Agent 终端：
+ctxguard wrap claude        # 一键启动 Claude Code
+ctxguard wrap pi            # 一键启动 Pi Agent
+ctxguard wrap aider         # 一键启动 Aider
+```
+
+#### 方式二：终端 Shell 快速注入（当前终端全自动生效）
 ```bash
 # 自动设置当前终端会话的环境变量
 eval $(ctxguard env --eval)
 
 # 启动你的 Agent 即可自动享受代理加速：
-claude          # 运行 Claude Code
-pi              # 运行 Pi Agent
+claude
+pi
 ```
 
-#### 方式二：全自动客户端配置桥接（Cursor / VSCode）
+#### 方式三：全自动客户端配置桥接（Cursor / Claude / Pi）
 ```bash
-# 自动检测本地客户端配置，保留原有 API 密钥并建立网关代理连接
+# 自动读取并记忆各客户端原有中转与 Key，自动将客户端 Base URL 改写指向代理网关
 ctxguard env --patch
 ```
 
-#### 方式三：手动配置服务端点
+#### 方式四：手动配置服务端点
 在任意兼容 OpenAI 或 Anthropic 协议的工具中配置代理地址：
 - **OpenAI 兼容端点 (GPT / DeepSeek)**：`http://127.0.0.1:8787/v1`
 - **Anthropic 兼容端点 (Claude Code)**：`http://127.0.0.1:8787`
@@ -189,6 +197,8 @@ ctxguard env --patch
 ## 🛠️ CLI 命令速查
 
 ```bash
+ctxguard wrap <agent>     # 自动感知中转配置并直接一键拉起目标 Agent (claude/pi/aider)
+ctxguard env --patch      # 自动扫描并改写本地客户端配置指向代理网关
 ctxguard stats            # 查看网关当前的吞吐量、压缩效率与近期待处理请求
 ctxguard savings          # 查看长周期的 Token 与成本节约明细
 ctxguard learn --apply    # 手动触发历史轨迹复盘并更新项目规则
