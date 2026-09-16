@@ -232,6 +232,21 @@ learn:
 output_shaper:
   enabled: false      # 设为 true 开启输出端客套话修剪与思考预算动态降级
   level: 2            # 1: 轻度精简 | 2: 推荐标准 | 3: 高度精炼 | 4: 极限代码
+
+# 🎚️ 4. 自适应调度与三级动态档位 (Adaptive Pipeline)
+adaptive_pipeline:
+  enabled: true       # 设为 false 则始终使用纯无损基础压缩
+  levels:
+    - name: "level_1" # < 64k Tokens: 纯无损结构压缩 (ANSI/GitDiff/Progress)
+      max_tokens: 65536
+      compression_mode: "lossless"
+    - name: "level_2" # 64k ~ 128k Tokens: 轻量 AST 骨架提取与堆栈剪枝
+      max_tokens: 131072
+      compression_mode: "lightweight"
+    - name: "level_3" # > 128k Tokens: 深度修剪与激进语义去重
+      max_tokens: 200000
+      compression_mode: "deep"
+  protected_keywords: ["CRITICAL", "FATAL", "TODO", "FIXME", "EXCEPTION"]
 ```
 
 ---
