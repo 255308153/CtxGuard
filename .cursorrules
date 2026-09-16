@@ -21,7 +21,7 @@
 
 <!-- CTXGUARD_AUTO_RULES:START -->
 ## CtxGuard Auto-Learned Rules & Loop Guards
-> *Last updated: 2026-09-16 13:18:17 (Generated automatically from incident analysis)*
+> *Last updated: 2026-09-16 20:59:49 (Generated automatically from incident analysis)*
 
 ### 1. Command Patterns (`Calling tool `chat_request``)
 - **Rule**: When `chat_request` fails repeatedly, stop and inspect argument format or prerequisites rather than repeating identical parameters.

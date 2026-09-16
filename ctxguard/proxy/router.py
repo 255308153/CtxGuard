@@ -876,11 +876,20 @@ def create_router(
             if upstream_payload.get("model") in ("deepseek-v4-flash", "deepseek-v4-flash-vision-exp"):
                 upstream_payload["model"] = "deepseek-flash"
 
-        # Check if request payload was modified by compressors, graph injection, or model aliasing.
-        # CRITICAL CACHE INVARIANT (Iron Invariant 3 & 1):
-        # If no modifications occurred, forward raw client bytes verbatim to ensure 100% SHA-256 byte parity!
+        # Check if request payload was modified by compressors, graph injection, model aliasing,
+        # or if historical prefix was compressed and frozen in prior turns.
+        # CRITICAL CACHE INVARIANT (Iron Invariant 1 & 2):
+        # Forward raw client bytes ONLY when the entire payload is genuinely identical to client input (no compression anywhere).
+        has_compressed_history = False
+        if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+            prev_forwarded = pipeline.cache_guard._last_forwarded_messages.get(session_id)
+            if prev_forwarded and (req_ctx.original_tokens > req_ctx.optimized_tokens or req_ctx.optimized_tokens < req_ctx.original_tokens):
+                has_compressed_history = True
+
         can_passthrough_raw = (
             not req_ctx.applied_compressors
+            and not has_compressed_history
+            and (req_ctx.original_tokens == req_ctx.optimized_tokens)
             and not req_ctx.metadata.get("graph_injected")
             and (raw_body.get("model") == upstream_payload.get("model"))
             and (not norm_req.stream or bool(raw_body.get("stream_options")))

@@ -76,8 +76,8 @@ class DedupCompressor(BaseCompressor):
         fingerprint_store = self.session_fingerprints[session_id]
 
         for msg in target_messages:
-            # NEVER compress assistant messages to prevent LLM prompt mimicry / EOS leak
-            if msg.role == "assistant":
+            # NEVER compress system or assistant messages to prevent prompt destruction and LLM mimicry
+            if msg.role in ("system", "assistant"):
                 continue
 
             text = msg.get_text_content()

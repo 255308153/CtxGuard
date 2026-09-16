@@ -1,7 +1,10 @@
 # Project Agents & Learned Rules
 
-## Command Patterns
+## Command Patterns & Invariants
 - When tools or requests fail repeatedly, stop and inspect argument format or prerequisites rather than repeating identical parameters.
+- **Cache Invariant 1 (No Raw Passthrough with Compressed History)**: Never passthrough raw client `body_bytes` when a session has previously established a compressed historical prefix. Always send the consistently re-serialized compressed prefix.
+- **Cache Invariant 2 (System Prompt Immutability)**: Never compress, dedup, or replace `system` prompts or `instructions` with ref tags.
+- **Cache Invariant 3 (Two-Stage Stream Status Check)**: Always probe upstream status code before returning `StreamingResponse` to prevent broken SSE streams without `response.completed`.
 
 <!-- CTXGUARD_AUTO_RULES:START -->
 ## CtxGuard Auto-Learned Rules & Success Patterns

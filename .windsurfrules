@@ -1,0 +1,31 @@
+<!-- ctxguard:learn:start -->
+## CtxGuard Learned Patterns & Guardrails
+*Auto-generated on 2026-09-15 10:47:07 UTC — do not edit manually between markers*
+
+
+
+<!-- ctxguard:learn:end -->
+
+<!-- ctxguard:learn:start -->
+## CtxGuard Learned Patterns & Guardrails
+*Auto-generated on 2026-09-15 10:46:39 UTC — do not edit manually between markers*
+
+<!-- ctxguard:learn:start -->
+## CtxGuard Learned Patterns & Guardrails
+*Auto-generated on 2026-09-15 10:47:07 UTC — do not edit manually between markers*
+
+
+
+<!-- ctxguard:learn:end -->
+
+<!-- ctxguard:learn:end -->
+
+<!-- CTXGUARD_AUTO_RULES:START -->
+## CtxGuard Auto-Learned Rules & Loop Guards
+> *Last updated: 2026-09-16 20:59:49 (Generated automatically from incident analysis)*
+
+### 1. Command Patterns (`Calling tool `chat_request``)
+- **Rule**: When `chat_request` fails repeatedly, stop and inspect argument format or prerequisites rather than repeating identical parameters.
+- **Context & Rationale**: Observed 24 consecutive execution errors with `chat_request`.
+
+<!-- CTXGUARD_AUTO_RULES:END -->

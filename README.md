@@ -37,56 +37,13 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 
 ---
 
-## 🏛️ 系统架构
+## 🏛️ 系统架构 (System Architecture)
 
-```mermaid
-flowchart TD
-    subgraph ClientLayer["客户端生态接入 (支持标准 OpenAI / Anthropic 协议)"]
-        A1["Cursor / VSCode 插件"] 
-        A2["Claude Code CLI"] 
-        A3["Pi Agent / Pi-Web"]
-        A4["自动化工作流 / 官方 SDK"]
-    end
+<div align="center">
 
-    ClientLayer -->|HTTP API 请求| GatewayIngress
+![CtxGuard 1.0 System Architecture](assets/architecture_diagram.jpg)
 
-    subgraph CtxGuardGateway["CtxGuard 代理网关服务 (默认端口 8787)"]
-        GatewayIngress["请求路由与多协议适配分发器"]
-
-        subgraph IngressPipeline["流水线核心处理算子"]
-            direction TB
-            P1["工具定义字母序重排<br/>消除客户端 Schema 键序随机抖动"]
-            P2["专用文本与结构压缩器<br/>Git Diff 差异折叠 / 终端控制码清洗 / 堆栈合并"]
-            P3["全局指纹库与 LRU 淘汰池<br/>历史长文本秒级去重，支持 0-Token 原文解压"]
-            P4["跨会话时序记忆图谱<br/>BM25 + 向量语义 + 实体关联混合检索"]
-            P5["输出端冗余抑制器<br/>提示词末尾注入稳定哨兵，精简模型回复套话"]
-            P6["原始字节流切片防抖校验<br/>未改动前缀直传二进制切片，确保哈希零漂移"]
-            
-            P1 --> P2 --> P3 --> P4 --> P5 --> P6
-        end
-
-        GatewayIngress --> IngressPipeline
-
-        subgraph BackgroundEngines["后台异步自治与规则管理"]
-            B1["交互轨迹与失败转折挖掘器<br/>捕获死循环与有效修复动作"]
-            B2["规则冲突消解与上限控制<br/>基于版本覆盖与预算截断，原子同步规则文件"]
-            B3["轻量嵌入式图数据库<br/>本地零依赖持久化存储"]
-        end
-
-        IngressPipeline -.->|异步事件上报| BackgroundEngines
-        BackgroundEngines -.->|写入项目规范| C1[".cursorrules / CLAUDE.local.md"]
-    end
-
-    subgraph CloudProviders["云端大模型服务商"]
-        L1["Anthropic Claude 系列"]
-        L2["OpenAI GPT / o 系列"]
-        L3["DeepSeek 系列"]
-    end
-
-    IngressPipeline -->|Keep-Alive 长连接转发| CloudProviders
-    CloudProviders -->|SSE 流式响应| GatewayEgress["流式事件分发与本地虚拟工具执行器"]
-    GatewayEgress -->|低延迟流式回传| ClientLayer
-```
+</div>
 
 ---
 

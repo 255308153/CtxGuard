@@ -65,28 +65,55 @@ class UpstreamClient:
         provider: ProviderConfig,
         client_headers: Dict[str, str],
     ) -> Dict[str, str]:
-        """Construct upstream request headers."""
-        headers: Dict[str, str] = {
-            "Content-Type": "application/json",
-            "User-Agent": "CtxGuard-Proxy/0.1.0",
+        """Construct upstream request headers preserving transparent client headers."""
+        headers: Dict[str, str] = {}
+        # Forward all non-hop-by-hop client headers
+        HOP_BY_HOP = {
+            "host", "content-length", "connection", "keep-alive",
+            "proxy-authenticate", "proxy-authorization", "te", "trailers",
+            "transfer-encoding", "upgrade"
         }
+        for k, v in client_headers.items():
+            if k.lower() not in HOP_BY_HOP:
+                headers[k] = v
+
+        if not any(k.lower() == "content-type" for k in headers):
+            headers["Content-Type"] = "application/json"
 
         api_key = self._resolve_api_key(provider, client_headers)
 
         if protocol == "anthropic":
             if api_key:
                 headers["x-api-key"] = api_key
-            headers["anthropic-version"] = client_headers.get(
-                "anthropic-version", "2023-06-01"
-            )
-            # Forward anthropic-beta if present
-            beta = client_headers.get("anthropic-beta")
+            if not any(k.lower() == "anthropic-version" for k in headers):
+                headers["anthropic-version"] = "2023-06-01"
+            beta = client_headers.get("anthropic-beta") or client_headers.get("Anthropic-Beta")
             if beta:
                 headers["anthropic-beta"] = beta
         else:
-            # OpenAI style
+            # OpenAI / Codex style
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
+            
+            # Inspect OAuth JWT bearer for ChatGPT account ID if not already present
+            auth_val = headers.get("Authorization") or headers.get("authorization")
+            if auth_val and not any(k.lower() == "chatgpt-account-id" for k in headers):
+                scheme, _, token = auth_val.partition(" ")
+                if scheme.lower() == "bearer" and token.count(".") >= 2:
+                    try:
+                        import base64
+                        import orjson
+                        part = token.split(".", 2)[1]
+                        part += "=" * (-len(part) % 4)
+                        claims = orjson.loads(base64.urlsafe_b64decode(part.encode("ascii")))
+                        if isinstance(claims, dict):
+                            auth_claims = claims.get("https://api.openai.com/auth")
+                            if isinstance(auth_claims, dict):
+                                acct_id = auth_claims.get("chatgpt_account_id")
+                                if acct_id:
+                                    headers["ChatGPT-Account-ID"] = str(acct_id).strip()
+                    except Exception:
+                        pass
 
         return headers
 
@@ -120,6 +147,24 @@ class UpstreamClient:
             response = await client.post(full_url, json=payload, headers=req_headers)
         return response
 
+    async def send_stream_request(
+        self,
+        url_path: str,
+        payload: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        provider_name: Optional[str] = None,
+        raw_body: Optional[bytes] = None,
+    ) -> httpx.Response:
+        """Send streaming request to upstream LLM provider and return open httpx.Response for status check."""
+        client = self.get_client()
+        provider = self.resolve_provider(provider_name)
+        full_url = self.build_full_url(provider, url_path)
+        req_headers = headers or {}
+        req_kwargs = {"content": raw_body} if raw_body is not None else {"json": payload}
+        req = client.build_request("POST", full_url, headers=req_headers, **req_kwargs)
+        response = await client.send(req, stream=True)
+        return response
+
     async def forward_stream(
         self,
         url_path: str,
@@ -141,16 +186,7 @@ class UpstreamClient:
             async with client.stream("POST", full_url, headers=req_headers, **req_kwargs) as response:
                 if response.status_code != 200:
                     body = await response.aread()
-                    error_text = body.decode("utf-8", errors="replace").strip()
-                    error_payload = {
-                        "error": {
-                            "message": error_text or f"Upstream error {response.status_code}",
-                            "type": "upstream_error",
-                            "code": response.status_code,
-                        }
-                    }
-                    import orjson
-                    yield f"data: {orjson.dumps(error_payload).decode('utf-8')}\n\ndata: [DONE]\n\n".encode("utf-8")
+                    yield body
                     return
 
                 async for chunk in response.aiter_bytes():
@@ -165,4 +201,4 @@ class UpstreamClient:
                     "code": 502,
                 }
             }
-            yield f"data: {orjson.dumps(error_payload).decode('utf-8')}\n\ndata: [DONE]\n\n".encode("utf-8")
+            yield f"data: {orjson.dumps(error_payload).decode('utf-8')}\n\n".encode("utf-8")

@@ -37,7 +37,7 @@ def _ensure_proxy_running(port: int = 8787) -> None:
                     return
         except Exception:
             continue
-    Console.warn("Proxy start timeout, continuing launch anyway...")
+    Console.warning("Proxy start timeout, continuing launch anyway...")
 
 def execute_wrap(args) -> None:
     agent = args.agent

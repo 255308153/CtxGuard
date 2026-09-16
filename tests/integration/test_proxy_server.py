@@ -235,3 +235,126 @@ def test_piggyback_extraction_end_to_end(client, monkeypatch):
         assert entity is not None
         assert entity.entity_type == "technology"
         assert "Prefers NextJS" in entity.description
+
+
+def test_openai_responses_proxy_codex(client, monkeypatch):
+    """Test OpenAI Responses API used by Codex CLI and ensure input structure is preserved."""
+    app_instance = client.app
+    upstream_client = app_instance.state.upstream
+
+    received_fwd_body = None
+
+    async def mock_forward_request(url_path, headers, provider_name=None, raw_body=None, **kwargs):
+        nonlocal received_fwd_body
+        received_fwd_body = raw_body
+        return httpx.Response(status_code=200, json={"id": "resp_123", "status": "completed", "output": []})
+
+    monkeypatch.setattr(upstream_client, "forward_request", mock_forward_request)
+
+    codex_payload = {
+        "model": "gpt-5",
+        "instructions": "You are a coding assistant.",
+        "input": [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "Fix this bug"}],
+            }
+        ],
+        "stream": False,
+    }
+
+    resp = client.post("/v1/responses", json=codex_payload)
+    assert resp.status_code == 200
+    assert resp.json()["id"] == "resp_123"
+
+    # Verify input structure was not mutated into a string
+    import orjson
+    fwd_json = orjson.loads(received_fwd_body)
+    assert isinstance(fwd_json["input"], list)
+    assert fwd_json["input"][0]["content"][0]["text"] == "Fix this bug"
+
+
+def test_openai_responses_codex_backend_aliases_and_tools(client, monkeypatch):
+    """Test all Codex client route aliases, additional_tools preservation, and JWT auth."""
+    import base64
+    import orjson
+    app_instance = client.app
+    upstream_client = app_instance.state.upstream
+
+    calls = []
+
+    async def mock_forward_request(url_path, headers, provider_name=None, raw_body=None, **kwargs):
+        calls.append((url_path, headers, raw_body))
+        return httpx.Response(status_code=200, json={"id": "resp_codex_alias", "status": "completed"})
+
+    monkeypatch.setattr(upstream_client, "forward_request", mock_forward_request)
+
+    # Fake JWT with chatgpt_account_id
+    payload_dict = {"https://api.openai.com/auth": {"chatgpt_account_id": "acct_xyz789"}}
+    token_str = "eyJhbGciOiJub25lIn0." + base64.urlsafe_b64encode(orjson.dumps(payload_dict)).decode("ascii").rstrip("=") + ".sig"
+
+    codex_payload = {
+        "model": "gpt-5.6-luna",
+        "instructions": "You are Codex.",
+        "input": [
+            {
+                "type": "additional_tools",
+                "tools": [{"name": "exec_command", "description": "Run shell"}],
+            },
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "Run tests"}],
+            },
+        ],
+        "stream": False,
+    }
+
+    for path in (
+        "/backend-api/codex/responses",
+        "/backend-api/responses",
+        "/v1/codex/responses",
+        "/p/myproj/backend-api/codex/responses",
+    ):
+        resp = client.post(
+            path,
+            json=codex_payload,
+            headers={"Authorization": f"Bearer {token_str}"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["id"] == "resp_codex_alias"
+
+    # Verify that ChatGPT-Account-ID was stamped and additional_tools preserved intact
+    assert len(calls) == 4
+    for call_path, call_headers, call_body in calls:
+        assert call_headers.get("ChatGPT-Account-ID") == "acct_xyz789"
+        parsed = orjson.loads(call_body)
+        assert any(item.get("type") == "additional_tools" for item in parsed["input"])
+
+
+def test_openai_responses_streaming_upstream_error_propagation(client, monkeypatch):
+    """Test that upstream error statuses on streaming requests are returned with exact status code."""
+    app_instance = client.app
+    upstream_client = app_instance.state.upstream
+
+    async def mock_send_stream_request(url_path, headers, provider_name=None, raw_body=None, **kwargs):
+        return httpx.Response(
+            status_code=401,
+            json={"error": {"message": "Incorrect API key provided", "type": "invalid_request_error"}},
+        )
+
+    monkeypatch.setattr(upstream_client, "send_stream_request", mock_send_stream_request)
+
+    codex_payload = {
+        "model": "gpt-5.6-luna",
+        "input": [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "Hi"}]}],
+        "stream": True,
+    }
+
+    resp = client.post("/v1/responses", json=codex_payload)
+    # Must NOT return 200 with an aborted stream; must return the 401 directly
+    assert resp.status_code == 401
+    assert "Incorrect API key provided" in resp.text
+
+

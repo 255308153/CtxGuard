@@ -137,7 +137,7 @@ class CacheGuardConfig:
     freeze_prefix_rounds: int = 2
     auto_anthropic_cache_control: bool = True
     min_cacheable_tokens: int = 1024
-    cache_ttl_seconds: int = 300
+    cache_ttl_seconds: int = 3600
     cold_recompact_enabled: bool = True
     provider_read_discounts: Dict[str, float] = field(default_factory=lambda: {
         "anthropic": 0.9,

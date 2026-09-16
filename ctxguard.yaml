@@ -10,12 +10,15 @@ server:
 upstream:
   default_provider: "deepseek"
   providers:
+    codex:
+      base_url: "https://api.super-nb.me"
+      api_key_env: "CODEX_API_KEY"
     deepseek:
       base_url: "https://api.deepseek.com"
-      api_key: "sk-REDACTED-DEEPSEEK-KEY-0000000000"
+      api_key_env: "DEEPSEEK_API_KEY"
     grok:
-      base_url: "https://sub.yjxm1221.top/v1"
-      api_key: "sk-REDACTED-GROK-KEY-0000000000000000000000000000000000000000000000"
+      base_url: "https://api.x.ai/v1"
+      api_key_env: "XAI_API_KEY"
     anthropic:
       base_url: "https://api.anthropic.com"
       api_key_env: "ANTHROPIC_API_KEY"
@@ -24,7 +27,7 @@ upstream:
       api_key_env: "OPENAI_API_KEY"
     antigravity:
       base_url: "http://127.0.0.1:8045/v1"
-      api_key: "sk-REDACTED-ANTIGRAVITY-KEY-0000000"
+      api_key_env: "ANTIGRAVITY_API_KEY"
 
 dedup:
   enabled: true
@@ -34,7 +37,7 @@ dedup:
     - "*secret*"
     - "*credential*"
   tool_injection:
-    enabled: false
+    enabled: true
     tool_name: "ctx_expand"
     description: "Expand compressed context reference by ref_id if you need full details."
 
@@ -51,6 +54,16 @@ structural_compression:
     min_array_length: 3
     ignore_keys:
       - "error"
+
+  ast_compressor:
+    enabled: true
+    min_lines: 35
+    preserve_docstrings: true
+
+  git_diff:
+    enabled: true
+    min_lines: 15
+    max_context_lines: 1
 
 adaptive_pipeline:
   enabled: true
@@ -82,9 +95,17 @@ cache_guard:
 
 learn:
   storage_db: ".ctxguard.db"
-  detect_loop_threshold: 3
+  detect_loop_threshold: 2
   target_files:
+    - path: "AGENTS.md"
+      marker: "CTXGUARD_AUTO_RULES"
+    - path: "INSTRUCTIONS.md"
+      marker: "CTXGUARD_AUTO_RULES"
+    - path: ".pi/rules.md"
+      marker: "CTXGUARD_AUTO_RULES"
     - path: "CLAUDE.local.md"
       marker: "CTXGUARD_AUTO_RULES"
     - path: ".cursorrules"
+      marker: "CTXGUARD_AUTO_RULES"
+    - path: ".windsurfrules"
       marker: "CTXGUARD_AUTO_RULES"
