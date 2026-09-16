@@ -111,6 +111,7 @@ def test_memory_graph_engine_learning_and_injection(graph_store):
     assert injected_md is not None
     assert "pnpm" in injected_md
 
-    # Ensure system prompt was prepended
-    assert req.messages[0].role == "system"
-    assert "[Personal Knowledge Graph Context]" in req.messages[0].content
+    # Ensure static prefix is preserved: injected into user message suffix, not prepended to system!
+    assert req.messages[0].role == "user"
+    assert "[Relevant User Context & Preferences]" in req.messages[0].content
+    assert ctx.metadata.get("graph_injected") is True

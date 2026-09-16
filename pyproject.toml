@@ -42,6 +42,10 @@ dev = [
 [project.scripts]
 ctxguard = "ctxguard.cli.main:main"
 
+[tool.setuptools.packages.find]
+include = ["ctxguard*"]
+exclude = ["references*", "tests*", "benchmarks*", "面试问答*"]
+
 [tool.pytest.ini_options]
 minversion = "7.0"
 addopts = "-ra -q"

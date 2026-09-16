@@ -17,6 +17,8 @@ from benchmarks.synthetic_dataset import (
     get_coding_agent_scenario,
     get_rag_database_scenario,
     get_long_document_rag_scenario,
+    get_first_time_large_code_scenario,
+    get_git_diff_review_scenario,
 )
 
 
@@ -60,6 +62,8 @@ async def main():
         get_coding_agent_scenario(),
         get_rag_database_scenario(),
         get_long_document_rag_scenario(),
+        get_first_time_large_code_scenario(),
+        get_git_diff_review_scenario(),
     ]
 
     results = []

@@ -1,0 +1,30 @@
+# Agent Operational Learnings & Guardrails
+
+## Avoid Large-Payload Full Overwrites & Large Edit Blocks
+- **Failure Pattern**:
+  1. Attempting full-file `write` on files exceeding 500+ lines triggers argument truncation (`Arguments truncated to save context window. File: must be provided`).
+  2. Attempting multi-hundred line `edit` replacements in a single edit block triggers similar parameter truncation (`Validation failed for tool edit: path: must have required properties path, edits`).
+- **Solution & Rule**:
+  - Always use localized precision editing (`edit` tool) with small, targeted chunks (< 50 lines per replacement block).
+  - When modifying large router/server/dashboard files, keep edits tightly focused on the specific function or import block.
+
+## Anti-Blind-Retry & Schema-First Execution (严禁盲目试错)
+- **Failure Pattern**: Encountering repeated `sqlite3.IntegrityError: FOREIGN KEY constraint failed` or `TypeError` due to guessing class names (`KnowledgeGraphEngine` vs `MemoryGraphEngine`) and function signatures without inspecting schemas.
+- **Solution & Rule**:
+  - NEVER retry a failed command/script with trial-and-error guesses.
+  - When encountering any database or interface error, immediately inspect the exact signature (`inspect.signature`) or table schema (`PRAGMA foreign_key_list`) before making the next execution.
+  - Ensure parent entity records exist and transactions are committed before referencing foreign keys in relational stores.
+  - Strictly invoke high-level repository APIs (`SQLiteGraphStore`) instead of writing raw SQL mutations.
+
+## Context Cache & Key Order Stability
+- Tool definitions and parameter schemas must be sorted alphabetically before sending to maintain bit-exact Prompt Cache hits.
+
+<!-- CTXGUARD_AUTO_RULES:START -->
+## CtxGuard Auto-Learned Rules & Loop Guards
+> *Last updated: 2026-09-16 13:18:17 (Generated automatically from incident analysis)*
+
+### 1. Command Patterns (`Calling tool `chat_request``)
+- **Rule**: When `chat_request` fails repeatedly, stop and inspect argument format or prerequisites rather than repeating identical parameters.
+- **Context & Rationale**: Observed 24 consecutive execution errors with `chat_request`.
+
+<!-- CTXGUARD_AUTO_RULES:END -->

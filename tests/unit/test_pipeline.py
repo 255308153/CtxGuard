@@ -20,11 +20,12 @@ def test_cache_guard_partition():
     ]
     req = NormalizedRequest(protocol="openai", model="gpt-4o", messages=messages)
 
-    frozen, compressible = guard.partition_messages(req)
+    frozen, compressible, was_cold = guard.partition_messages(req)
     assert len(frozen) == 2
     assert len(compressible) == 2
     assert frozen[0].content == "Question 1"
     assert compressible[0].content == "Question 2"
+    assert was_cold is False
 
 
 def test_compression_pipeline_end_to_end():

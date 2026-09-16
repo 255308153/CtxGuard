@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS requests (
     saved_ratio REAL NOT NULL,
     latency_ms REAL NOT NULL,
     applied_compressors TEXT DEFAULT '[]',
+    cached_tokens INTEGER DEFAULT 0,
+    cache_type TEXT DEFAULT 'none',
     FOREIGN KEY(session_id) REFERENCES sessions(session_id)
 );
 

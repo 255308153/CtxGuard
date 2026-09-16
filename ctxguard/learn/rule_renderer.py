@@ -15,7 +15,7 @@ class RuleRenderer:
 
         lines = [
             f"<!-- {marker}:START -->",
-            "## 🛡️ CtxGuard Auto-Learned Rules & Loop Guards",
+            "## CtxGuard Auto-Learned Rules & Loop Guards",
             f"> *Last updated: {now_str} (Generated automatically from incident analysis)*",
             "",
         ]

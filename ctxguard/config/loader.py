@@ -20,6 +20,8 @@ from ctxguard.config.schema import (
     CacheGuardConfig,
     LearnConfig,
     TargetFileConfig,
+    SemanticCacheConfig,
+    PiggybackExtractionConfig,
 )
 from ctxguard.config.validator import validate_config
 
@@ -175,6 +177,24 @@ class ConfigLoader:
                 storage_db=learn_data.get("storage_db", config.learn.storage_db),
                 detect_loop_threshold=int(learn_data.get("detect_loop_threshold", config.learn.detect_loop_threshold)),
                 target_files=targets if targets else config.learn.target_files,
+            )
+
+        # Semantic cache
+        sc_data = data.get("semantic_cache", {})
+        if sc_data:
+            config.semantic_cache = SemanticCacheConfig(
+                enabled=bool(sc_data.get("enabled", config.semantic_cache.enabled)),
+                similarity_threshold=float(sc_data.get("similarity_threshold", config.semantic_cache.similarity_threshold)),
+                max_entries=int(sc_data.get("max_entries", config.semantic_cache.max_entries)),
+                ttl_seconds=int(sc_data.get("ttl_seconds", config.semantic_cache.ttl_seconds)),
+                use_exact_matching=bool(sc_data.get("use_exact_matching", config.semantic_cache.use_exact_matching)),
+            )
+
+        # Piggyback extraction
+        pb_data = data.get("piggyback_extraction", {})
+        if pb_data:
+            config.piggyback_extraction = PiggybackExtractionConfig(
+                enabled=bool(pb_data.get("enabled", config.piggyback_extraction.enabled)),
             )
 
         return config

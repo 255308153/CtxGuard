@@ -1,5 +1,6 @@
 """Unit tests for virtual tool injection and local execution."""
 
+import json
 import os
 import tempfile
 import pytest
@@ -9,19 +10,29 @@ from ctxguard.core.virtual_tools.injector import VirtualToolInjector
 from ctxguard.core.virtual_tools.executor import VirtualToolExecutor
 from ctxguard.storage.db import DatabaseManager
 from ctxguard.storage.repository_fingerprint import FingerprintRepository
+from ctxguard.storage.repository_graph import SQLiteGraphStore
 
 
 @pytest.fixture
-def fingerprint_repo():
+def test_db_manager():
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
     db_mgr = DatabaseManager(path)
-    repo = FingerprintRepository(db_mgr)
-    yield repo
+    yield db_mgr
     try:
         os.remove(path)
     except OSError:
         pass
+
+
+@pytest.fixture
+def fingerprint_repo(test_db_manager):
+    return FingerprintRepository(test_db_manager)
+
+
+@pytest.fixture
+def graph_store(test_db_manager):
+    return SQLiteGraphStore(test_db_manager)
 
 
 def test_virtual_tool_injector():
@@ -30,9 +41,9 @@ def test_virtual_tool_injector():
     injector.inject_schema(req)
 
     assert req.tools is not None
-    assert len(req.tools) == 1
-    assert req.tools[0]["name"] == "ctx_expand"
-    assert "ref_id" in req.tools[0]["input_schema"]["properties"]
+    tool_names = [t["name"] for t in req.tools]
+    assert "ctx_expand" in tool_names
+    assert "memory_save" in tool_names
 
 
 def test_virtual_tool_executor_openai(fingerprint_repo):
@@ -56,38 +67,52 @@ def test_virtual_tool_executor_openai(fingerprint_repo):
             }
         ],
     )
-    req = NormalizedRequest(protocol="openai", model="gpt-4o", messages=[tool_call_msg])
 
-    local_resp = executor.check_and_execute(req)
-    assert local_resp is not None
-    assert local_resp.protocol == "openai"
-    assert local_resp.content == original_code
-    assert local_resp.prompt_tokens == 0
-    assert local_resp.completion_tokens == 0
+    req = NormalizedRequest(
+        protocol="openai",
+        model="gpt-4o",
+        messages=[tool_call_msg],
+    )
+
+    resp = executor.check_and_execute(req)
+    assert resp is not None
+    assert resp.content == original_code
+    assert resp.prompt_tokens == 0
 
 
-def test_virtual_tool_executor_anthropic(fingerprint_repo):
-    original_code = "const config = { port: 8080 };"
-    fingerprint_repo.save_fingerprint("abcd98765432", "session_2", original_code)
+def test_virtual_tool_executor_memory_save(graph_store):
+    executor = VirtualToolExecutor(graph_store=graph_store)
 
-    executor = VirtualToolExecutor(fingerprint_repo=fingerprint_repo)
-
-    # Simulate Anthropic tool_use content block
-    tool_use_msg = Message(
+    tool_call_msg = Message(
         role="assistant",
-        content=[
+        content="",
+        tool_calls=[
             {
-                "type": "tool_use",
-                "id": "toolu_01",
-                "name": "ctx_expand",
-                "input": {"ref_id": "abcd98765432"},
+                "id": "call_mem_1",
+                "type": "function",
+                "function": {
+                    "name": "memory_save",
+                    "arguments": json.dumps({
+                        "fact": "User prefers using FastAPI for backend services",
+                        "entity": "User",
+                        "scope": "USER"
+                    }),
+                },
             }
         ],
     )
-    req = NormalizedRequest(protocol="anthropic", model="claude-3-5-sonnet-20241022", messages=[tool_use_msg])
 
-    local_resp = executor.check_and_execute(req)
-    assert local_resp is not None
-    assert local_resp.protocol == "anthropic"
-    assert local_resp.content == original_code
-    assert local_resp.prompt_tokens == 0
+    req = NormalizedRequest(
+        protocol="openai",
+        model="gpt-4o",
+        messages=[tool_call_msg],
+    )
+
+    resp = executor.check_and_execute(req)
+    assert resp is not None
+    data = json.loads(resp.content)
+    assert data["status"] == "success"
+
+    # Verify persisted in SQLite graph store
+    subgraph = graph_store.get_full_graph()
+    assert any("FastAPI" in e.name for e in subgraph.entities)

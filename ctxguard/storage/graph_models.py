@@ -21,9 +21,34 @@ class RelationshipDirection(str, Enum):
     BOTH = "both"
 
 
+class MemoryScope(str, Enum):
+    """Memory scope hierarchy (from broad to narrow).
+
+    - USER:    Persists across all sessions; long-term preferences, identity.
+    - SESSION: Lives for the current conversation window.
+    - AGENT:   Scoped to a specific agent within a session.
+    - TURN:    Single-turn scratch memory; discarded after the turn.
+    """
+    USER = "user"
+    SESSION = "session"
+    AGENT = "agent"
+    TURN = "turn"
+
+
 @dataclass
 class Entity:
-    """An entity node in the knowledge graph."""
+    """An entity node in the knowledge graph.
+
+    Supersession Chain fields (Gap 1):
+      valid_from     – ISO timestamp when this entity became the current fact.
+      valid_until    – ISO timestamp when this entity was superseded (NULL = still active).
+      supersedes     – ID of the entity this one replaces (backward pointer).
+      superseded_by  – ID of the entity that replaced this one (forward pointer).
+
+    Scope fields (Gap 6 / lightweight):
+      scope          – MemoryScope enum value (default USER).
+      session_id     – Optional session identifier for SESSION/AGENT scoped memories.
+    """
     name: str
     entity_type: str = "concept"  # person, technology, preference, project, environment, concept
     description: Optional[str] = None
@@ -33,10 +58,23 @@ class Entity:
     created_at: datetime = field(default_factory=_utc_now)
     updated_at: datetime = field(default_factory=_utc_now)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # --- Supersession Chain ---
+    valid_from: datetime = field(default_factory=_utc_now)
+    valid_until: Optional[datetime] = None
+    supersedes: Optional[str] = None       # old entity id this replaces
+    superseded_by: Optional[str] = None    # new entity id that replaced this
+    # --- Scope ---
+    scope: MemoryScope = MemoryScope.USER
+    session_id: Optional[str] = None
 
     @property
     def name_lower(self) -> str:
         return self.name.strip().lower()
+
+    @property
+    def is_active(self) -> bool:
+        """Return True if this entity is the current active fact (not superseded)."""
+        return self.valid_until is None and self.superseded_by is None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -50,6 +88,13 @@ class Entity:
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "metadata": self.metadata,
+            "valid_from": self.valid_from.isoformat(),
+            "valid_until": self.valid_until.isoformat() if self.valid_until else None,
+            "supersedes": self.supersedes,
+            "superseded_by": self.superseded_by,
+            "scope": self.scope.value,
+            "session_id": self.session_id,
+            "is_active": self.is_active,
         }
 
 

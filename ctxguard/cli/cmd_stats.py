@@ -1,62 +1,76 @@
-"""Stats dashboard command for CtxGuard."""
+"""CLI command: ctxguard stats - Display comprehensive SQLite gateway statistics."""
 
 import argparse
-from pathlib import Path
-import sys
+import os
+from typing import Optional
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.columns import Columns
 
-from ctxguard.config.loader import ConfigLoader
 from ctxguard.storage.db import DatabaseManager
 from ctxguard.storage.repository_stats import StatsRepository
-from ctxguard.utils.console import Console
 
 
 def execute_stats(args: argparse.Namespace) -> None:
-    """Render real-time context optimization and token savings dashboard."""
-    try:
-        config = ConfigLoader.load_config(config_path=args.config if hasattr(args, "config") else None)
-    except Exception:
-        config = ConfigLoader.load_config()
-
-    db_path = getattr(args, "db", None) or config.learn.storage_db
-    if not Path(db_path).exists():
-        Console.warning(f"No database found at '{db_path}'. Make requests through the proxy first.")
-        return
-
+    """Execute stats display command."""
+    db_path = getattr(args, "db", None) or os.getenv("CTXGUARD_DB_PATH", ".ctxguard.db")
     db_manager = DatabaseManager(db_path)
-    stats_repo = StatsRepository(db_manager)
-    summary = stats_repo.get_summary()
+    repo = StatsRepository(db_manager)
 
-    # ANSI styles
-    C = Console.CYAN
-    G = Console.GREEN
-    Y = Console.YELLOW
-    B = Console.BOLD
-    R = Console.RESET
-    D = Console.DIM
+    summary = repo.get_summary()
+    recent = repo.get_recent_requests(limit=getattr(args, "limit", 10))
 
-    print(f"\n{B}{C}╔══════════════════════════════════════════════════════════════════╗{R}")
-    print(f"{B}{C}║               CtxGuard Context Optimization Dashboard            ║{R}")
-    print(f"{B}{C}╚══════════════════════════════════════════════════════════════════╝{R}\n")
+    console = Console()
 
-    print(f" {B}Database:{R} {db_path}")
-    print(f" {B}Total Proxied Requests:{R}  {summary['total_requests']:,}")
-    print(f" {B}Total Raw Tokens In:{R}     {summary['total_raw_tokens']:,}")
-    print(f" {B}Optimized Tokens Out:{R}    {summary['total_optimized_tokens']:,}")
-    print(f" {B}Total Tokens Saved:{R}      {G}{B}{summary['total_saved_tokens']:,}{R} ({G}{summary['overall_saved_percent']}%{R})")
-    print(f" {B}Estimated Cost Saved:{R}    {G}{B}${summary['estimated_dollars_saved']:.4f} USD{R}")
-    print(f" {B}Avg Process Latency:{R}     {summary['avg_latency_ms']} ms\n")
+    # Header Panel
+    console.print(
+        Panel(
+            f"[bold cyan] CtxGuard Context Optimization Dashboard[/bold cyan]\n"
+            f"[dim]Database: {db_path}[/dim]",
+            border_style="bright_blue",
+        )
+    )
 
-    recent_limit = getattr(args, "limit", 5) or 5
-    recent_logs = stats_repo.get_recent_requests(limit=recent_limit)
-    if recent_logs:
-        print(f"{B} Recent Requests (Last {len(recent_logs)}):{R}")
-        print(f" {'ID':<4} {'Model':<22} {'Raw':<8} {'Optimized':<10} {'Saved %':<9} {'Latency':<9}")
-        print(f" {D}{'-'*66}{R}")
-        for r in recent_logs:
-            model_short = (r['model'][:20] + '..') if len(r['model']) > 22 else r['model']
-            saved_str = f"{r['saved_ratio']}%"
-            lat_str = f"{r['latency_ms']:.1f}ms"
-            print(f" {r['id']:<4} {model_short:<22} {r['raw_tokens']:<8} {r['optimized_tokens']:<10} {G}{saved_str:<9}{R} {lat_str:<9}")
-        print()
+    # Key Metrics Cards
+    tot_req = summary.get("total_requests", 0)
+    raw_tok = summary.get("total_raw_tokens", 0)
+    saved_tok = summary.get("total_saved_tokens", 0)
+    saved_pct = summary.get("overall_saved_percent", 0.0)
+    avg_lat = summary.get("avg_latency_ms", 0.0)
+    dollars = summary.get("estimated_dollars_saved", 0.0)
+
+    p1 = Panel(f"[bold green]{tot_req:,}[/bold green]\n[dim]Total Proxied Requests[/dim]", border_style="green")
+    p2 = Panel(f"[bold cyan]{saved_tok:,}[/bold cyan] / {raw_tok:,}\n[dim]Tokens Saved / Total[/dim]", border_style="cyan")
+    p3 = Panel(f"[bold magenta]{saved_pct:.1f}%[/bold magenta]\n[dim]Reduction Ratio[/dim]", border_style="magenta")
+    p4 = Panel(f"[bold yellow]${dollars:.4f}[/bold yellow]\n[dim]Estimated Savings[/dim]", border_style="yellow")
+
+    console.print(Columns([p1, p2, p3, p4]))
+
+    # Print explicit string for backward compatibility / tests
+    console.print(f"[dim]Total Proxied Requests: {tot_req} | Avg Latency: {avg_lat:.2f}ms[/dim]\n")
+
+    # Recent Requests Table
+    if recent:
+        table = Table(title=" Recent Optimization Requests", border_style="dim", header_style="bold blue")
+        table.add_column("ID", justify="right", style="dim")
+        table.add_column("Protocol", style="cyan")
+        table.add_column("Model", style="bold")
+        table.add_column("Raw Tok", justify="right")
+        table.add_column("Opt Tok", justify="right", style="green")
+        table.add_column("Saved %", justify="right", style="magenta")
+        table.add_column("Latency", justify="right", style="yellow")
+
+        for r in recent:
+            table.add_row(
+                str(r.get("id", "")),
+                str(r.get("protocol", "")),
+                str(r.get("model", "")),
+                f"{r.get('raw_tokens', 0):,}",
+                f"{r.get('optimized_tokens', 0):,}",
+                f"{r.get('saved_ratio', 0.0):.1f}%",
+                f"{r.get('latency_ms', 0.0):.1f}ms",
+            )
+        console.print(table)
     else:
-        print(f"{D} No request history recorded yet.{R}\n")
+        console.print("[dim]No recent requests logged yet.[/dim]")

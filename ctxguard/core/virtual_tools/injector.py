@@ -6,47 +6,34 @@ from ctxguard.core.context import NormalizedRequest
 
 
 class VirtualToolInjector:
-    """Injects virtual tool definitions into normalized requests."""
+    """Injects virtual tool definitions (ctx_expand, memory_save) into normalized requests."""
 
     def __init__(self, config: ToolInjectionConfig):
         self.config = config
 
     def inject_schema(self, request: NormalizedRequest) -> None:
-        """Inject ctx_expand tool schema if enabled and not already present."""
+        """Inject virtual tools schemas if enabled and not already present."""
         if not self.config.enabled:
             return
 
+        if request.tools is None:
+            request.tools = []
+
+        existing_names = set()
+        for t in request.tools:
+            if isinstance(t, dict):
+                name = t.get("name") or t.get("function", {}).get("name")
+                if name:
+                    existing_names.add(name)
+
+        # 1. ctx_expand tool
         tool_name = self.config.tool_name
-
-        if request.tools:
-            for t in request.tools:
-                if isinstance(t, dict):
-                    if t.get("name") == tool_name or t.get("function", {}).get("name") == tool_name:
-                        return
-
-        if request.protocol == "anthropic":
-            tool_def = {
-                "name": tool_name,
-                "description": self.config.description,
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "ref_id": {
-                            "type": "string",
-                            "description": "The sha256 reference hash identifier to expand.",
-                        }
-                    },
-                    "required": ["ref_id"],
-                },
-            }
-        else:
-            # OpenAI format
-            tool_def = {
-                "type": "function",
-                "function": {
+        if tool_name not in existing_names:
+            if request.protocol == "anthropic":
+                request.tools.append({
                     "name": tool_name,
                     "description": self.config.description,
-                    "parameters": {
+                    "input_schema": {
                         "type": "object",
                         "properties": {
                             "ref_id": {
@@ -56,9 +43,76 @@ class VirtualToolInjector:
                         },
                         "required": ["ref_id"],
                     },
-                },
-            }
+                })
+            else:
+                request.tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "description": self.config.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "ref_id": {
+                                "type": "string",
+                                "description": "The sha256 reference hash identifier to expand.",
+                                }
+                            },
+                            "required": ["ref_id"],
+                        },
+                    },
+                })
 
-        if request.tools is None:
-            request.tools = []
-        request.tools.append(tool_def)
+        # 2. memory_save virtual tool (Headroom aligned)
+        if "memory_save" not in existing_names:
+            if request.protocol == "anthropic":
+                request.tools.append({
+                    "name": "memory_save",
+                    "description": "Save important user facts, technology preferences, or environment details to persistent memory.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "fact": {
+                                "type": "string",
+                                "description": "The atomic fact or preference to remember.",
+                            },
+                            "entity": {
+                                "type": "string",
+                                "description": "Target entity or subject (e.g. User, Python, MacOS, Project).",
+                            },
+                            "scope": {
+                                "type": "string",
+                                "enum": ["USER", "PROJECT", "SESSION"],
+                                "description": "Memory scope level.",
+                            },
+                        },
+                        "required": ["fact"],
+                    },
+                })
+            else:
+                request.tools.append({
+                    "type": "function",
+                    "function": {
+                        "name": "memory_save",
+                        "description": "Save important user facts, technology preferences, or environment details to persistent memory.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "fact": {
+                                    "type": "string",
+                                    "description": "The atomic fact or preference to remember.",
+                                },
+                                "entity": {
+                                    "type": "string",
+                                    "description": "Target entity or subject (e.g. User, Python, MacOS, Project).",
+                                },
+                                "scope": {
+                                    "type": "string",
+                                    "enum": ["USER", "PROJECT", "SESSION"],
+                                    "description": "Memory scope level.",
+                                },
+                            },
+                            "required": ["fact"],
+                        },
+                    },
+                })

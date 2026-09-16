@@ -103,32 +103,42 @@ class UpstreamClient:
     async def forward_request(
         self,
         url_path: str,
-        payload: Dict[str, Any],
-        headers: Dict[str, str],
+        payload: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
         provider_name: Optional[str] = None,
+        raw_body: Optional[bytes] = None,
     ) -> httpx.Response:
-        """Send non-streaming request to upstream."""
+        """Send non-streaming request to upstream. If raw_body is provided, forwards raw bytes verbatim."""
         client = self.get_client()
         provider = self.resolve_provider(provider_name)
         full_url = self.build_full_url(provider, url_path)
+        req_headers = headers or {}
 
-        response = await client.post(full_url, json=payload, headers=headers)
+        if raw_body is not None:
+            response = await client.post(full_url, content=raw_body, headers=req_headers)
+        else:
+            response = await client.post(full_url, json=payload, headers=req_headers)
         return response
 
     async def forward_stream(
         self,
         url_path: str,
-        payload: Dict[str, Any],
-        headers: Dict[str, str],
+        payload: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
         provider_name: Optional[str] = None,
+        raw_body: Optional[bytes] = None,
     ) -> AsyncIterator[bytes]:
-        """Stream request to upstream and yield raw byte chunks, ensuring errors are formatted cleanly."""
+        """Stream request to upstream and yield raw byte chunks, ensuring errors are formatted cleanly.
+        If raw_body is provided, forwards raw bytes verbatim without re-serialization.
+        """
         client = self.get_client()
         provider = self.resolve_provider(provider_name)
         full_url = self.build_full_url(provider, url_path)
+        req_headers = headers or {}
 
         try:
-            async with client.stream("POST", full_url, json=payload, headers=headers) as response:
+            req_kwargs = {"content": raw_body} if raw_body is not None else {"json": payload}
+            async with client.stream("POST", full_url, headers=req_headers, **req_kwargs) as response:
                 if response.status_code != 200:
                     body = await response.aread()
                     error_text = body.decode("utf-8", errors="replace").strip()

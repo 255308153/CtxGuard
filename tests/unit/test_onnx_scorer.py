@@ -23,3 +23,25 @@ def test_semantic_pruner_compress_text():
     text = "Basically and essentially, we can actually optimize this function easily."
     pruned = pruner.compress_text(text)
     assert len(pruned) <= len(text)
+
+
+def test_semantic_pruner_cache_aware_guard():
+    from ctxguard.core.context import NormalizedRequest, RequestContext
+    pruner = SemanticPruner()
+
+    req = NormalizedRequest(protocol="openai", model="gpt-4o", messages=[])
+    ctx = RequestContext(request=req, original_tokens=70000)
+    ctx.state["target_prune_ratio"] = 0.85
+    ctx.state["compression_mode"] = "lightweight"
+
+    # Without active cache: applicable
+    ctx.state["has_active_cache"] = False
+    assert pruner.is_applicable(ctx) is True
+
+    # With active cache established: dormant to prevent breaking cloud KV cache
+    ctx.state["has_active_cache"] = True
+    assert pruner.is_applicable(ctx) is False
+
+    # In extreme deep mode (>200k tokens): applicable even with cache
+    ctx.state["compression_mode"] = "deep"
+    assert pruner.is_applicable(ctx) is True

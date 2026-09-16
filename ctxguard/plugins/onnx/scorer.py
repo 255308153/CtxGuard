@@ -2,7 +2,7 @@
 
 from typing import List, Set
 from ctxguard.core.compressors.base import BaseCompressor
-from ctxguard.core.context import RequestContext
+from ctxguard.core.context import RequestContext, Message
 from ctxguard.plugins.onnx.tokenizer import FastTokenizer
 from ctxguard.plugins.onnx.model_loader import ONNXModelLoader
 
@@ -41,9 +41,32 @@ class SemanticPruner(BaseCompressor):
         return "semantic_pruner"
 
     def is_applicable(self, context: RequestContext) -> bool:
-        # Activated when active level is 'deep' or explicit target_prune_ratio < 1.0
+        # Cache-Aware Invariant: If session already has active cloud KV cache,
+        # never run lossy semantic pruning unless in 'deep' extreme compression mode,
+        # ensuring 100% prefix byte stability and KV cache hit rate (Cache > Lossy Compression).
+        if context.state.get("has_active_cache", False):
+            mode = context.state.get("compression_mode", "lossless")
+            if mode != "deep":
+                return False
+
+        # Activated when active level is 'deep' or explicit target_prune_ratio < 0.95
         mode = context.state.get("compression_mode", "lossless")
         return mode in {"deep", "semantic"} or context.state.get("target_prune_ratio", 1.0) < 0.95
+
+    def process(self, context: RequestContext, target_messages: list[Message]) -> None:
+        """Process target messages in place using dynamic target_prune_ratio from context state."""
+        ratio = context.state.get("target_prune_ratio", self.target_prune_ratio)
+        for msg in target_messages:
+            # Never semantically prune system instructions or short prompts
+            if msg.role == "system":
+                continue
+            text = msg.get_text_content()
+            if text and len(text) >= 200:
+                optimized = self.prune_text(text, keep_ratio=ratio)
+                if optimized != text:
+                    msg.set_text_content(optimized)
+                    if self.name not in context.applied_compressors:
+                        context.applied_compressors.append(self.name)
 
     def _score_token(self, token: str) -> float:
         """Assign importance score (0.0 to 1.0) to a token."""

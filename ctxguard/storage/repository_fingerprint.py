@@ -14,43 +14,73 @@ class FingerprintRepository:
         """Strip sha256_ prefix and whitespace."""
         return hash_id.replace("sha256_", "").strip()
 
-    def save_fingerprint(self, hash_id: str, session_id: str, content: str) -> None:
-        """Save a content fingerprint (idempotent insert)."""
+    def save_fingerprint(self, hash_id: str, session_id: str, content: str, max_records: int = 10000) -> None:
+        """Save a content fingerprint (with LRU eviction)."""
         clean_id = self._clean_hash(hash_id)
         with self.db.get_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO fingerprints (hash_id, session_id, content, char_length)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO fingerprints (hash_id, session_id, content, char_length, created_at, last_accessed_at, hit_count)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
                 ON CONFLICT(hash_id) DO UPDATE SET
                     session_id = excluded.session_id,
                     content = excluded.content,
-                    char_length = excluded.char_length
+                    char_length = excluded.char_length,
+                    last_accessed_at = CURRENT_TIMESTAMP,
+                    hit_count = fingerprints.hit_count + 1
                 """,
                 (clean_id, session_id, content, len(content)),
+            )
+            # Automatic LRU Eviction when over max_records limit
+            conn.execute(
+                """
+                DELETE FROM fingerprints
+                WHERE hash_id IN (
+                    SELECT hash_id FROM fingerprints
+                    ORDER BY last_accessed_at ASC, hit_count ASC
+                    LIMIT MAX(0, (SELECT COUNT(*) FROM fingerprints) - ?)
+                )
+                """,
+                (max_records,),
             )
             conn.commit()
 
     def get_content(self, hash_id: str) -> Optional[str]:
-        """Retrieve original content by full or prefix hash ID."""
+        """Retrieve original content by full or prefix hash ID and bump LRU timestamp."""
         clean_hash = self._clean_hash(hash_id)
         with self.db.get_connection() as conn:
             # Exact match
             cursor = conn.execute(
-                "SELECT content FROM fingerprints WHERE hash_id = ? LIMIT 1",
+                "SELECT content, hash_id FROM fingerprints WHERE hash_id = ? LIMIT 1",
                 (clean_hash,),
             )
             row = cursor.fetchone()
             if row:
+                try:
+                    conn.execute(
+                        "UPDATE fingerprints SET last_accessed_at = CURRENT_TIMESTAMP, hit_count = hit_count + 1 WHERE hash_id = ?",
+                        (row["hash_id"],),
+                    )
+                    conn.commit()
+                except Exception:
+                    pass
                 return row["content"]
 
             # Prefix match for short fingerprints
             cursor = conn.execute(
-                "SELECT content FROM fingerprints WHERE hash_id LIKE ? LIMIT 1",
+                "SELECT content, hash_id FROM fingerprints WHERE hash_id LIKE ? LIMIT 1",
                 (f"{clean_hash}%",),
             )
             row = cursor.fetchone()
             if row:
+                try:
+                    conn.execute(
+                        "UPDATE fingerprints SET last_accessed_at = CURRENT_TIMESTAMP, hit_count = hit_count + 1 WHERE hash_id = ?",
+                        (row["hash_id"],),
+                    )
+                    conn.commit()
+                except Exception:
+                    pass
                 return row["content"]
 
         return None

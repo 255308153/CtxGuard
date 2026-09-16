@@ -58,17 +58,35 @@ class DatabaseManager:
                 session_id TEXT NOT NULL,
                 content TEXT NOT NULL,
                 char_length INTEGER NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                hit_count INTEGER DEFAULT 0
             );
             """)
 
             # 2. Migrations for existing databases
+            try:
+                conn.execute("ALTER TABLE fingerprints ADD COLUMN last_accessed_at TIMESTAMP")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE fingerprints ADD COLUMN hit_count INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
             try:
                 conn.execute("ALTER TABLE requests ADD COLUMN project_name TEXT DEFAULT 'default'")
             except sqlite3.OperationalError:
                 pass
             try:
                 conn.execute("ALTER TABLE requests ADD COLUMN prompt_preview TEXT DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE requests ADD COLUMN cached_tokens INTEGER DEFAULT 0")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE requests ADD COLUMN cache_type TEXT DEFAULT 'none'")
             except sqlite3.OperationalError:
                 pass
 

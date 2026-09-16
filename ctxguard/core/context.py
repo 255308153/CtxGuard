@@ -14,14 +14,27 @@ class Message:
     tool_calls: Optional[List[Dict[str, Any]]] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    def has_protected_signature(self) -> bool:
+        """Check if message contains cryptographic signatures or thinking blocks that cannot be mutated."""
+        if isinstance(self.content, list):
+            for block in self.content:
+                if isinstance(block, dict) and (block.get("type") == "thinking" or "signature" in block):
+                    return True
+        if self.metadata.get("reasoning_content") or self.metadata.get("signature"):
+            return True
+        return False
+
     def get_text_content(self) -> str:
-        """Extract plain text representation from content."""
+        """Extract plain text representation from content, strictly excluding thinking blocks and signatures."""
         if isinstance(self.content, str):
             return self.content
         if isinstance(self.content, list):
             texts = []
             for block in self.content:
                 if isinstance(block, dict):
+                    # NEVER expose thinking blocks or signatures to generic text compressors
+                    if block.get("type") == "thinking" or "signature" in block or "thinking" in block:
+                        continue
                     if "text" in block:
                         texts.append(str(block["text"]))
                     elif "content" in block and isinstance(block["content"], str):
@@ -30,15 +43,36 @@ class Message:
         return str(self.content)
 
     def set_text_content(self, new_text: str) -> None:
-        """Update content with new text while preserving block structure if applicable."""
+        """Update content with new text while preserving block structure and thinking/signature blocks intact."""
         if isinstance(self.content, str):
             self.content = new_text
         elif isinstance(self.content, list):
-            # If single text block, update it; otherwise replace with new text
-            if len(self.content) == 1 and isinstance(self.content[0], dict) and "text" in self.content[0]:
-                self.content[0]["text"] = new_text
-            else:
-                self.content = new_text
+            # Check if list contains protected blocks (e.g. thinking, signature, tool_use)
+            text_block_updated = False
+            for block in self.content:
+                if isinstance(block, dict):
+                    if block.get("type") == "thinking" or "signature" in block:
+                        continue
+                    if "text" in block:
+                        block["text"] = new_text
+                        text_block_updated = True
+                        break
+                    elif "content" in block and isinstance(block["content"], str):
+                        block["content"] = new_text
+                        text_block_updated = True
+                        break
+
+            if not text_block_updated:
+                has_protected = any(
+                    isinstance(b, dict) and (b.get("type") == "thinking" or "signature" in b)
+                    for b in self.content
+                )
+                if has_protected:
+                    self.content.append({"type": "text", "text": new_text})
+                elif len(self.content) == 1 and isinstance(self.content[0], dict) and "text" in self.content[0]:
+                    self.content[0]["text"] = new_text
+                else:
+                    self.content = new_text
 
 
 @dataclass
@@ -54,6 +88,7 @@ class NormalizedRequest:
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     raw_payload: Dict[str, Any] = field(default_factory=dict)
+    raw_bytes: Optional[bytes] = None
     session_id: str = "default"
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -81,3 +116,4 @@ class RequestContext:
     compression_ratio: float = 1.0
     applied_compressors: List[str] = field(default_factory=list)
     state: Dict[str, Any] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)

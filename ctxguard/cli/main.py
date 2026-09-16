@@ -7,6 +7,8 @@ from ctxguard.cli.cmd_start import execute_start
 from ctxguard.cli.cmd_config import execute_config
 from ctxguard.cli.cmd_stats import execute_stats
 from ctxguard.cli.cmd_learn import execute_learn
+from ctxguard.cli.cmd_savings import execute_savings
+from ctxguard.cli.cmd_env import execute_env
 from ctxguard.utils.console import Console
 
 
@@ -43,13 +45,29 @@ def create_parser() -> argparse.ArgumentParser:
     stats_parser.add_argument("--db", help="Path to custom .ctxguard.db database file")
     stats_parser.add_argument("-n", "--limit", type=int, default=5, help="Number of recent request logs to display")
 
-    # 'learn' command (Phase 3)
-    learn_parser = subparsers.add_parser("learn", help="Run offline loop detection and rule update")
+    # 'savings' command (Durable Append-Only Savings Ledger)
+    savings_parser = subparsers.add_parser("savings", help="Show durable context compression and cache savings over time")
+    savings_parser.add_argument("--json", dest="as_json", action="store_true", help="Emit raw report as JSON")
+    savings_parser.add_argument("--days", type=int, default=30, help="Retention and lookback window in days (default: 30)")
+    savings_parser.add_argument("--reset", action="store_true", help="Delete/reset the savings ledger")
+    savings_parser.add_argument("--path", help="Path to custom savings_events.jsonl ledger file")
+
+    # 'learn' command (Phase 3: Offline Self-Evolution)
+    learn_parser = subparsers.add_parser("learn", help="Run offline failure analysis, success correlation, and rule update")
     learn_parser.add_argument("-c", "--config", help="Path to ctxguard.yaml config file")
     learn_parser.add_argument("--db", help="Path to custom .ctxguard.db database file")
     learn_parser.add_argument("-t", "--target", help="Explicit target rule file (e.g. .cursorrules or CLAUDE.local.md)")
+    learn_parser.add_argument("-s", "--source", "--scan-dir", dest="source", help="Directory containing Claude Code jsonl logs or project logs")
     learn_parser.add_argument("--threshold", type=int, help="Loop detection sensitivity threshold")
+    learn_parser.add_argument("--apply", action="store_true", help="Atomically write extracted rules to target files (defaults to dry-run preview)")
     learn_parser.add_argument("--dry-run", action="store_true", help="Preview extracted rules without writing to files")
+
+    # 'env' command: one-click setup for agent environments
+    env_parser = subparsers.add_parser("env", help="One-click environment injection for Claude Code / Pi Agent / Cursor / GPT")
+    env_parser.add_argument("agent", nargs="?", default="all", choices=["claude", "pi", "cursor", "gpt", "all"], help="Target agent ecosystem")
+    env_parser.add_argument("-p", "--port", type=int, default=8787, help="CtxGuard proxy gateway port (default: 8787)")
+    env_parser.add_argument("--patch", action="store_true", help="Auto-detect and remember agent original upstreams and patch configs")
+    env_parser.add_argument("--eval", action="store_true", help="Output shell export commands for eval $(ctxguard env)")
 
     return parser
 
@@ -68,8 +86,12 @@ def main() -> None:
         execute_config(args)
     elif args.command == "stats":
         execute_stats(args)
+    elif args.command == "savings":
+        execute_savings(args)
     elif args.command == "learn":
         execute_learn(args)
+    elif args.command == "env":
+        execute_env(args)
     else:
         parser.print_help()
 

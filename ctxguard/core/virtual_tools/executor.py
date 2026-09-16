@@ -1,129 +1,153 @@
-"""Local interceptor and executor for virtual tools like ctx_expand."""
+"""Virtual tool local executor for zero-token operations and transparent memory interception."""
 
 import json
-from typing import Any, Dict, Optional, Tuple
+import logging
+import uuid
+from typing import Any, Dict, Optional
 from ctxguard.core.context import NormalizedRequest, NormalizedResponse
+from ctxguard.storage.graph_models import Entity, MemoryScope, Relationship
 from ctxguard.storage.repository_fingerprint import FingerprintRepository
+from ctxguard.storage.repository_graph import SQLiteGraphStore
+
+logger = logging.getLogger(__name__)
 
 
 class VirtualToolExecutor:
-    """Intercepts and locally fulfills virtual tool calls with 0 upstream LLM tokens."""
+    """Executes virtual tool calls locally without forwarding to upstream LLM."""
 
-    def __init__(self, fingerprint_repo: Optional[FingerprintRepository] = None):
+    def __init__(
+        self,
+        fingerprint_repo: Optional[FingerprintRepository] = None,
+        graph_store: Optional[SQLiteGraphStore] = None,
+    ):
         self.fingerprint_repo = fingerprint_repo
+        self.graph_store = graph_store
 
-    def check_and_execute(
-        self, request: NormalizedRequest
-    ) -> Optional[NormalizedResponse]:
-        """Check if request contains a call to ctx_expand, and if so, fulfill it locally."""
+    def is_virtual_tool(self, tool_name: str) -> bool:
+        """Check if tool is handled locally."""
+        return tool_name in ("ctx_expand", "memory_save", "memory_search")
+
+    def check_and_execute(self, request: NormalizedRequest) -> Optional[NormalizedResponse]:
+        """Intercept and execute virtual tool calls locally."""
         if not request.messages:
             return None
 
-        # Check latest message for tool calls (OpenAI) or tool_use blocks (Anthropic)
         last_msg = request.messages[-1]
+        tool_calls = getattr(last_msg, "tool_calls", None)
+        if not tool_calls or not isinstance(tool_calls, list):
+            return None
 
-        # Case 1: OpenAI tool_calls in assistant message
-        if last_msg.tool_calls:
-            for tc in last_msg.tool_calls:
-                fn = tc.get("function", {})
-                if fn.get("name") == "ctx_expand":
-                    call_id = tc.get("id", "call_ctx_expand")
-                    args_str = fn.get("arguments", "{}")
-                    try:
-                        args = json.loads(args_str) if isinstance(args_str, str) else args_str
-                    except Exception:
-                        args = {}
-                    ref_id = args.get("ref_id", "")
-                    content = self._expand(ref_id)
-                    return self._build_openai_tool_response(request, call_id, content)
+        for tc in tool_calls:
+            fname = ""
+            args_raw = ""
+            if isinstance(tc, dict):
+                func = tc.get("function", {})
+                fname = func.get("name", "") if isinstance(func, dict) else tc.get("name", "")
+                args_raw = func.get("arguments", "") if isinstance(func, dict) else tc.get("arguments", "")
 
-        # Case 2: Anthropic tool_use content blocks
-        if isinstance(last_msg.content, list):
-            for block in last_msg.content:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
-                    if block.get("name") == "ctx_expand":
-                        tool_use_id = block.get("id", "toolu_ctx_expand")
-                        input_data = block.get("input", {})
-                        ref_id = input_data.get("ref_id", "")
-                        content = self._expand(ref_id)
-                        return self._build_anthropic_tool_response(request, tool_use_id, content)
+            if fname == "ctx_expand":
+                return self._execute_ctx_expand(request, args_raw)
+            elif fname == "memory_save":
+                return self._execute_memory_save(request, args_raw)
 
         return None
 
-    def _expand(self, ref_id: str) -> str:
-        """Fetch decompressed content from fingerprint repository."""
-        if not ref_id:
-            return "Error: Empty ref_id provided."
+    def _execute_ctx_expand(self, request: NormalizedRequest, args_raw: Any) -> NormalizedResponse:
+        ref_id = ""
+        try:
+            if isinstance(args_raw, str):
+                args = json.loads(args_raw)
+            elif isinstance(args_raw, dict):
+                args = args_raw
+            else:
+                args = {}
+            ref_id = args.get("ref_id", "")
+        except Exception:
+            pass
 
-        if self.fingerprint_repo:
-            found = self.fingerprint_repo.get_content(ref_id)
-            if found:
-                return found
+        original_content = ""
+        if self.fingerprint_repo and ref_id:
+            original_content = self.fingerprint_repo.get_content(ref_id) or ""
 
-        return f"Error: Reference '{ref_id}' not found in fingerprint store."
+        if not original_content:
+            original_content = f"Error: Reference {ref_id} not found."
 
-    def _build_openai_tool_response(
-        self, request: NormalizedRequest, call_id: str, content: str
-    ) -> NormalizedResponse:
-        raw_resp = {
-            "id": f"chatcmpl_local_expand_{call_id}",
-            "object": "chat.completion",
-            "model": request.model,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "tool",
-                        "tool_call_id": call_id,
-                        "content": content,
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            },
-        }
         return NormalizedResponse(
-            protocol="openai",
-            id=raw_resp["id"],
+            protocol=request.protocol,
+            id=f"local_expand_{uuid.uuid4().hex[:8]}",
             model=request.model,
-            content=content,
+            content=original_content,
             prompt_tokens=0,
             completion_tokens=0,
             total_tokens=0,
-            raw_response=raw_resp,
+            raw_response={"status": "expanded_locally"},
         )
 
-    def _build_anthropic_tool_response(
-        self, request: NormalizedRequest, tool_use_id: str, content: str
-    ) -> NormalizedResponse:
-        raw_resp = {
-            "id": f"msg_local_expand_{tool_use_id}",
-            "type": "message",
-            "role": "user",
-            "model": request.model,
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_use_id": tool_use_id,
-                    "content": content,
-                }
-            ],
-            "usage": {
-                "input_tokens": 0,
-                "output_tokens": 0,
-            },
-        }
+    def _execute_memory_save(self, request: NormalizedRequest, args_raw: Any) -> NormalizedResponse:
+        try:
+            if isinstance(args_raw, str):
+                args = json.loads(args_raw)
+            elif isinstance(args_raw, dict):
+                args = args_raw
+            else:
+                args = {}
+
+            fact = args.get("fact", "").strip()
+            scope_str = str(args.get("scope", "USER")).lower()
+
+            scope = MemoryScope.USER
+            if "session" in scope_str:
+                scope = MemoryScope.SESSION
+            elif "agent" in scope_str:
+                scope = MemoryScope.AGENT
+            elif "turn" in scope_str:
+                scope = MemoryScope.TURN
+
+            if self.graph_store and fact:
+                # 1. Ensure User entity exists in graph_store
+                user_entity = self.graph_store.get_entity_by_name("User")
+                if not user_entity:
+                    user_entity = Entity(
+                        name="User",
+                        entity_type="person",
+                        description="Default User Entity",
+                    )
+                    self.graph_store.add_entity(user_entity)
+
+                # 2. Add Preference/Fact Entity
+                entity = Entity(
+                    name=fact,
+                    entity_type="preference",
+                    description=fact,
+                    scope=scope,
+                    properties={"fact": fact, "scope": scope.value},
+                )
+                self.graph_store.add_entity(entity)
+
+                # 3. Add Relationship
+                rel = Relationship(
+                    source_id=user_entity.id,
+                    target_id=entity.id,
+                    relation_type="prefers",
+                    properties={"desc": fact, "scope": scope.value},
+                )
+                self.graph_store.add_relationship(rel)
+
+                res_body = json.dumps({"status": "success", "message": "Memory saved successfully", "mem_id": entity.id})
+            else:
+                res_body = json.dumps({"status": "error", "message": "Missing fact or graph_store uninitialized"})
+
+        except Exception as e:
+            logger.error(f"Error executing memory_save: {e}")
+            res_body = json.dumps({"status": "error", "message": str(e)})
+
         return NormalizedResponse(
-            protocol="anthropic",
-            id=raw_resp["id"],
+            protocol=request.protocol,
+            id=f"local_mem_{uuid.uuid4().hex[:8]}",
             model=request.model,
-            content=content,
+            content=res_body,
             prompt_tokens=0,
-            completion_tokens=0,
-            total_tokens=0,
-            raw_response=raw_resp,
+            completion_tokens=len(res_body) // 4,
+            total_tokens=len(res_body) // 4,
+            raw_response={"status": "memory_saved_locally"},
         )

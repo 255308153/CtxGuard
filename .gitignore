@@ -55,3 +55,20 @@ htmlcov/
 .idea/
 *.swp
 *~
+# CtxGuard auto-generated local rule file
+CLAUDE.local.md
+
+# Sensitive configs
+ctxguard.local.yaml
+*.local.yaml
+.env
+.env.*
+
+# Local databases and memory files
+*.db
+*.db-journal
+*.db-wal
+.ctxguard.db
+:memory:
+.ctxguard/
+.obsidian/

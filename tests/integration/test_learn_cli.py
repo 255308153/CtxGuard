@@ -18,7 +18,7 @@ def test_cli_learn_write_file():
     temp_dir = tempfile.mkdtemp()
     target_rule = str(Path(temp_dir) / ".cursorrules")
 
-    args = argparse.Namespace(dry_run=False, target=target_rule, threshold=3)
+    args = argparse.Namespace(apply=True, dry_run=False, target=target_rule, threshold=3)
     execute_learn(args)
 
     assert Path(target_rule).exists()

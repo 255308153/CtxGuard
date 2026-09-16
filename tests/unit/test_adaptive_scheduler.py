@@ -36,9 +36,16 @@ def test_adaptive_scheduler_tune_context():
     config = AdaptivePipelineConfig(enabled=True)
     scheduler = AdaptiveScheduler(config)
 
-    req = NormalizedRequest(protocol="openai", model="gpt-4o", messages=[])
-    ctx = RequestContext(request=req, original_tokens=20000)
+    # 20k tokens is within level_1 (up to 64k, lossless)
+    req1 = NormalizedRequest(protocol="openai", model="gpt-4o", messages=[])
+    ctx1 = RequestContext(request=req1, original_tokens=20000)
+    scheduler.tune_pipeline_context(ctx1)
+    assert ctx1.state["active_level"] == "level_1"
+    assert ctx1.state["target_prune_ratio"] == 1.0
 
-    active_lvl = scheduler.tune_pipeline_context(ctx)
-    assert ctx.state["active_level"] == "level_2"
-    assert ctx.state["target_prune_ratio"] == 0.85
+    # 80k tokens reaches level_2 (lightweight)
+    req2 = NormalizedRequest(protocol="openai", model="gpt-4o", messages=[])
+    ctx2 = RequestContext(request=req2, original_tokens=80000)
+    scheduler.tune_pipeline_context(ctx2)
+    assert ctx2.state["active_level"] == "level_2"
+    assert ctx2.state["target_prune_ratio"] == 0.90

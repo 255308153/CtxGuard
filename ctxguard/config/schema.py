@@ -36,6 +36,14 @@ class UpstreamConfig:
             base_url="https://api.deepseek.com",
             api_key_env="DEEPSEEK_API_KEY",
         ),
+        "google": ProviderConfig(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+            api_key_env="GEMINI_API_KEY",
+        ),
+        "gemini": ProviderConfig(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+            api_key_env="GEMINI_API_KEY",
+        ),
         "custom": ProviderConfig(
             base_url="http://127.0.0.1:11434",
             api_key="ollama",
@@ -76,9 +84,28 @@ class JSONCompressorConfig:
 
 
 @dataclass
+class ASTCodeCompressorConfig:
+    enabled: bool = True
+    min_lines: int = 35
+    preserve_docstrings: bool = True
+    supported_languages: List[str] = field(default_factory=lambda: [
+        "python", "py", "javascript", "js", "typescript", "ts", "go", "rust", "rs", "java", "c", "cpp"
+    ])
+
+
+@dataclass
+class GitDiffCompressorConfig:
+    enabled: bool = True
+    min_lines: int = 15
+    max_context_lines: int = 1
+
+
+@dataclass
 class StructuralCompressionConfig:
     log_cleaner: LogCleanerConfig = field(default_factory=LogCleanerConfig)
     json_compressor: JSONCompressorConfig = field(default_factory=JSONCompressorConfig)
+    ast_compressor: ASTCodeCompressorConfig = field(default_factory=ASTCodeCompressorConfig)
+    git_diff: GitDiffCompressorConfig = field(default_factory=GitDiffCompressorConfig)
 
 
 @dataclass
@@ -94,8 +121,8 @@ class LevelConfig:
 class AdaptivePipelineConfig:
     enabled: bool = True
     levels: List[LevelConfig] = field(default_factory=lambda: [
-        LevelConfig(name="level_1", max_tokens=16384, compression_mode="lossless", prune_ratio=1.0),
-        LevelConfig(name="level_2", max_tokens=65536, compression_mode="lightweight", prune_ratio=0.85),
+        LevelConfig(name="level_1", max_tokens=65536, compression_mode="lossless", prune_ratio=1.0),
+        LevelConfig(name="level_2", max_tokens=131072, compression_mode="lightweight", prune_ratio=0.90),
         LevelConfig(name="level_3", max_tokens=200000, compression_mode="deep", prune_ratio=0.60, use_onnx=False),
     ])
     protected_keywords: List[str] = field(default_factory=lambda: [
@@ -105,9 +132,30 @@ class AdaptivePipelineConfig:
 
 @dataclass
 class CacheGuardConfig:
+    enabled: bool = True
     freeze_system_prompt: bool = True
     freeze_prefix_rounds: int = 2
     auto_anthropic_cache_control: bool = True
+    min_cacheable_tokens: int = 1024
+    cache_ttl_seconds: int = 300
+    cold_recompact_enabled: bool = True
+    provider_read_discounts: Dict[str, float] = field(default_factory=lambda: {
+        "anthropic": 0.9,
+        "deepseek": 0.9,
+        "openai": 0.5,
+        "gemini": 0.9,
+        "google": 0.9,
+        "bedrock": 0.9,
+        "default": 0.5,
+    })
+    provider_write_penalties: Dict[str, float] = field(default_factory=lambda: {
+        "anthropic": 0.25,
+        "deepseek": 0.0,
+        "openai": 0.0,
+        "gemini": 0.0,
+        "google": 0.0,
+        "default": 0.0,
+    })
 
 
 @dataclass
@@ -128,6 +176,26 @@ class LearnConfig:
 
 
 @dataclass
+class SemanticCacheConfig:
+    enabled: bool = True
+    similarity_threshold: float = 0.95
+    max_entries: int = 1000
+    ttl_seconds: int = 300
+    use_exact_matching: bool = True
+
+
+@dataclass
+class PiggybackExtractionConfig:
+    enabled: bool = True
+
+
+@dataclass
+class OutputShapingConfig:
+    enabled: bool = False
+    level: int = 2
+
+
+@dataclass
 class AppConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     upstream: UpstreamConfig = field(default_factory=UpstreamConfig)
@@ -136,3 +204,6 @@ class AppConfig:
     adaptive_pipeline: AdaptivePipelineConfig = field(default_factory=AdaptivePipelineConfig)
     cache_guard: CacheGuardConfig = field(default_factory=CacheGuardConfig)
     learn: LearnConfig = field(default_factory=LearnConfig)
+    semantic_cache: SemanticCacheConfig = field(default_factory=SemanticCacheConfig)
+    piggyback_extraction: PiggybackExtractionConfig = field(default_factory=PiggybackExtractionConfig)
+    output_shaper: OutputShapingConfig = field(default_factory=OutputShapingConfig)
