@@ -156,6 +156,11 @@ ctxguard wrap claude        # 一键启动 Claude Code
 ctxguard wrap pi            # 一键启动 Pi Agent
 ctxguard wrap aider         # 一键启动 Aider
 ```
+> **💡 Wrap 运行原理与底层工作流**：
+> 1. **网关自愈探测**：自动检测 `8787` 端口是否存活，若未启动则毫秒级在后台自动静默拉起 Proxy 网关。
+> 2. **上游配置自动感知 (Auto-Discovery)**：自动读取 `~/.claude/settings.json` 或 Pi 等配置文件中原本保存的真实中转站 API 地址与 Key，并在网关中建立专用映射。
+> 3. **进程级隔离注入 (Isolated Spawning)**：在内存中为即将拉起的 Agent 子进程独立注入 `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`，**完全不污染操作系统的全局环境**。
+> 4. **原生 TTY 终端接管**：无缝透传 stdin/stdout 交互，退出 Agent 时自动完成状态清理与复盘。
 
 #### 方式二：终端 Shell 快速注入（当前终端全自动生效）
 ```bash
