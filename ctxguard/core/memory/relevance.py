@@ -31,20 +31,19 @@ class MemoryRelevanceScorer:
         self.min_threshold = min_threshold
 
     def tokenize(self, text: str) -> List[str]:
-        """Tokenize text into lowercase keywords and CJK bigrams/unigrams."""
+        """Tokenize text using industrial Jieba DAG segmenter + English keywords."""
         if not text:
             return []
-        text = text.lower()
-        # 1. Extract alphanumeric & technical terms
-        words = self._KEYWORD_RE.findall(text)
+        text_lower = text.lower()
         
-        # 2. Extract CJK characters and generate 2-gram (Bi-gram) phrases for better semantic matching
-        cjk_chars = [char for char in text if '\u4e00' <= char <= '\u9fff']
-        cjk_bigrams = []
-        for i in range(len(cjk_chars) - 1):
-            cjk_bigrams.append(cjk_chars[i] + cjk_chars[i+1])
+        try:
+            import jieba
+            # Cut into exact Chinese and English words
+            raw_tokens = [w.strip() for w in jieba.cut(text_lower, cut_all=False) if w.strip()]
+        except ImportError:
+            raw_tokens = self._KEYWORD_RE.findall(text_lower)
             
-        return words + cjk_chars + cjk_bigrams
+        return raw_tokens
 
     def score(self, query: str, candidate_text: str) -> float:
         """Compute hybrid relevance score between query and candidate text."""
