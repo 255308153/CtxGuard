@@ -121,9 +121,9 @@ class LevelConfig:
 class AdaptivePipelineConfig:
     enabled: bool = True
     levels: List[LevelConfig] = field(default_factory=lambda: [
-        LevelConfig(name="level_1", max_tokens=65536, compression_mode="lossless", prune_ratio=1.0),
-        LevelConfig(name="level_2", max_tokens=131072, compression_mode="lightweight", prune_ratio=0.90),
-        LevelConfig(name="level_3", max_tokens=200000, compression_mode="deep", prune_ratio=0.60, use_onnx=False),
+        LevelConfig(name="level_1", max_tokens=131072, compression_mode="lossless", prune_ratio=1.0),       # < 128k: 纯无损结构压缩
+        LevelConfig(name="level_2", max_tokens=524288, compression_mode="lightweight", prune_ratio=0.90),   # 128k ~ 512k: AST骨架与堆栈剪枝
+        LevelConfig(name="level_3", max_tokens=2097152, compression_mode="deep", prune_ratio=0.60, use_onnx=False), # 512k ~ 2M+: 深度修剪与激进语义去重
     ])
     protected_keywords: List[str] = field(default_factory=lambda: [
         "CRITICAL", "FATAL", "TODO", "FIXME", "EXCEPTION"

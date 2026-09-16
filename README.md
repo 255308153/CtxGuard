@@ -237,14 +237,14 @@ output_shaper:
 adaptive_pipeline:
   enabled: true       # 设为 false 则始终使用纯无损基础压缩
   levels:
-    - name: "level_1" # < 64k Tokens: 纯无损结构压缩 (ANSI/GitDiff/Progress)
-      max_tokens: 65536
-      compression_mode: "lossless"
-    - name: "level_2" # 64k ~ 128k Tokens: 轻量 AST 骨架提取与堆栈剪枝
+    - name: "level_1" # 🟢 档位 1 (< 128k Tokens): 纯无损结构压缩 (ANSI/GitDiff/Progress)
       max_tokens: 131072
+      compression_mode: "lossless"
+    - name: "level_2" # 🟡 档位 2 (128k ~ 512k Tokens): 轻量 AST 骨架提取与堆栈剪枝
+      max_tokens: 524288
       compression_mode: "lightweight"
-    - name: "level_3" # > 128k Tokens: 深度修剪与激进语义去重
-      max_tokens: 200000
+    - name: "level_3" # 🔴 档位 3 (512k ~ 2M+ Tokens): 深度修剪与激进语义去重 (超长防爆档)
+      max_tokens: 2097152
       compression_mode: "deep"
   protected_keywords: ["CRITICAL", "FATAL", "TODO", "FIXME", "EXCEPTION"]
 ```
