@@ -69,7 +69,7 @@ flowchart TD
         L3["DeepSeek V3 / R1"]
     end
 
-    IngressPipeline -->|高并发连接池 (Keep-Alive / HTTP/2)| CloudProviders
+    IngressPipeline -->|高并发连接池 Keep-Alive / HTTP/2| CloudProviders
     CloudProviders -->|SSE 流式 Token| GatewayEgress["SSE 流式处理器 & 本地虚拟工具拦截器"]
     GatewayEgress -->|打字机流式回传| ClientLayer
 ```
