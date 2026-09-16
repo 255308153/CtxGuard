@@ -23,6 +23,20 @@
 
 ---
 
+## 🖥️ 控制面板预览 (Web Dashboard)
+
+CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://127.0.0.1:8787/dashboard`），用于直观监控全局 Token 流向、会话压缩曲线、知识图谱与自动演进的规则库：
+
+| 实时 Token 流量趋势与多轮压缩监控 | 跨 Agent 时序知识图谱拓扑 |
+| :---: | :---: |
+| ![Token 流量趋势图](assets/screenshots/02-traffic-chart.png) | ![知识图谱拓扑](assets/screenshots/03-knowledge-graph.png) |
+
+| 控制面板全局数据大盘概览 | 自进化避坑经验规则库 |
+| :---: | :---: |
+| ![全局概览看板](assets/screenshots/01-dashboard-overview.png) | ![自进化经验规则库](assets/screenshots/04-learned-rules.png) |
+
+---
+
 ## 🏛️ 系统架构
 
 ```mermaid
