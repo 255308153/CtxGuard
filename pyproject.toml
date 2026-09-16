@@ -27,6 +27,7 @@ dependencies = [
     "httpx>=0.27.0",
     "orjson>=3.9.15",
     "pyyaml>=6.0.1",
+    "jieba>=0.42.1",
 ]
 
 [project.optional-dependencies]

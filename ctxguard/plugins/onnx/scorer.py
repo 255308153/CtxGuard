@@ -3,6 +3,7 @@
 from typing import List, Set
 from ctxguard.core.compressors.base import BaseCompressor
 from ctxguard.core.context import RequestContext, Message
+# FastTokenizer & ONNXModelLoader will be imported lazily or at top
 from ctxguard.plugins.onnx.tokenizer import FastTokenizer
 from ctxguard.plugins.onnx.model_loader import ONNXModelLoader
 
@@ -20,6 +21,14 @@ LOW_VALUE_STOPWORDS: Set[str] = {
     "basically", "essentially", "actually", "literally", "furthermore", "moreover",
     "additionally", "please", "kindly", "note", "certainly", "absolutely", "definitely",
     "perhaps", "maybe", "somewhat", "honestly", "frankly", "obviously", "clearly",
+}
+
+# 🇨🇳 50万词库中文高频客套、填充副词与语气助词 (用于精准信息熵脱水)
+CHINESE_LOW_VALUE_WORDS: Set[str] = {
+    "其实", "基本上", "实际上", "说实话", "总的来说", "显而易见",
+    "众所周知", "好的", "好的呢", "好的哈", "请稍等", "稍等一下",
+    "请稍候", "没问题", "收到哈", "综上所述", "总而言之", "希望对您有所帮助",
+    "不过", "也就是说", "换句话说", "哈", "呀", "呢", "吧", "啊"
 }
 
 
@@ -83,10 +92,12 @@ class SemanticPruner(BaseCompressor):
         if stripped in CODE_KEYWORDS:
             return 0.95
 
+        # Low-value conversational fillers (English & Chinese) get lowest score
+        if stripped.lower() in LOW_VALUE_STOPWORDS or stripped in CHINESE_LOW_VALUE_WORDS:
+            return 0.1
+
         # Numbers and identifiers
         if stripped.isalnum():
-            if stripped.lower() in LOW_VALUE_STOPWORDS:
-                return 0.1
             return 0.7
 
         # Punctuation / Brackets
