@@ -1,11 +1,28 @@
 """Semantic token scoring and classification pruner based on LLMLingua-2 principles."""
 
+import re
 from typing import List, Set
 from ctxguard.core.compressors.base import BaseCompressor
 from ctxguard.core.context import RequestContext, Message
-# FastTokenizer & ONNXModelLoader will be imported lazily or at top
 from ctxguard.plugins.onnx.tokenizer import FastTokenizer
 from ctxguard.plugins.onnx.model_loader import ONNXModelLoader
+
+# 🛡️ Headroom-aligned Must-Keep Pattern: Hex IDs, numbers, dotted paths, unix paths,
+# file extensions, CLI flags, CamelCase types, and critical negation/directive words.
+MUST_KEEP_RE = re.compile(
+    r"\b0x[0-9A-Fa-f]+\b"                # hex addresses: 0x7fff2038
+    r"|(?<![\w.])\d+(?:\.\d+)?(?![\w.])" # numbers: 42, 3.14
+    r"|[A-Z_]{2,}"                       # ALLCAPS: SIGILL, HTTP, EOF, ERROR
+    r"|[a-z_][a-z0-9_]*\.[a-z0-9_]+"     # dotted.paths: config.json, lib.dylib
+    r"|/[a-z0-9/._-]{2,}"                # unix paths: /usr/lib/python3.so
+    r"|\.[a-z]{2,4}\b"                   # extensions: .py .so .json
+    r"|--?[a-z][\w-]*"                   # flags: --verbose, -n
+    r"|\b[A-Z][a-z]+[A-Z]\w*"            # CamelCase: IndexError, AppConfig
+    # Negation & directive words (prevent semantic inversion!)
+    r"|(?i:\b(?:not|never|none|cannot|can't|don't|doesn't|didn't|won't|shouldn't"
+    r"|mustn't|isn't|aren't|avoid|refuse|prohibited|forbidden|disallow|unless"
+    r"|except|without|must|should|shall|required|always|only|mandatory)\b)"
+)
 
 
 # High value code & structural anchors
@@ -93,6 +110,10 @@ class SemanticPruner(BaseCompressor):
         if not stripped:
             # Whitespace
             return 0.5
+
+        # Headroom Must-Keep Pattern (Numbers, paths, error codes, CamelCase, negations)
+        if MUST_KEEP_RE.search(stripped):
+            return 1.0
 
         # Protected keywords always retained
         if stripped in self.protected_keywords:
