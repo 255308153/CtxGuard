@@ -1,28 +1,25 @@
-"""Fast, zero-heavy-dependency tokenizer and word segmenter."""
-
 import re
-from typing import List, Tuple
-
+from typing import List
 
 class FastTokenizer:
-    """Regex-based high-speed tokenizer splitting words, punctuation, and CJK characters."""
-
-    # Matches word tokens, CJK characters, whitespace sequences, and individual punctuation
-    TOKEN_REGEX = re.compile(
-        r"[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]"  # Single CJK character
-        r"|[a-zA-Z0-9_\-\.]+"                          # Alphanumeric words/identifiers
-        r"|\s+"                                         # Whitespace sequences
-        r"|[^\s\w]"                                     # Individual punctuation / symbols
+    """Fast, dependency-free tokenizer supporting English, Code, and CJK Chinese tokens."""
+    
+    _TOKEN_PATTERN = re.compile(
+        r"[a-zA-Z0-9_\-\.]+"           # 英文/数字/代码标识符
+        r"|[\u4e00-\u9fff]"            # 单个中文汉字 (CJK)
+        r"|[^\w\s]"                    # 标点与符号
+        r"|\s+"                        # 空白块
     )
 
     @classmethod
     def tokenize(cls, text: str) -> List[str]:
-        """Split string into token list preserving full text upon join."""
         if not text:
             return []
-        return cls.TOKEN_REGEX.findall(text)
+        return cls._TOKEN_PATTERN.findall(text)
 
     @classmethod
     def detokenize(cls, tokens: List[str]) -> str:
-        """Reconstruct original text from token list."""
+        """Reconstruct string from token sequence preserving whitespace."""
+        if not tokens:
+            return ""
         return "".join(tokens)
