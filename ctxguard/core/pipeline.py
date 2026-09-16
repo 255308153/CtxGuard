@@ -5,20 +5,6 @@ from typing import Callable, Dict, List, Optional
 from ctxguard.config.schema import AppConfig
 from ctxguard.core.context import NormalizedRequest, RequestContext
 from ctxguard.core.compressors.base import BaseCompressor
-from ctxguard.core.compressors.ansi_cleaner import ANSICleaner
-from ctxguard.core.compressors.progress_merger import ProgressMerger
-from ctxguard.core.compressors.stacktrace import StacktraceFolder
-from ctxguard.core.compressors.json_struct import JSONStructCompressor
-from ctxguard.core.compressors.whitespace import WhitespaceCleaner
-from ctxguard.core.compressors.dedup import DedupCompressor
-from ctxguard.core.compressors.ast_code import ASTCodeCompressor
-from ctxguard.core.compressors.git_diff import GitDiffCompressor
-from ctxguard.core.guards.cache_guard import CacheGuard
-from ctxguard.core.guards.output_shaper import OutputShaper
-from ctxguard.core.guards.tools_normalizer import ToolsNormalizer
-from ctxguard.core.adaptive_scheduler import AdaptiveScheduler
-from ctxguard.core.virtual_tools.injector import VirtualToolInjector
-from ctxguard.plugins.onnx.scorer import SemanticPruner
 from ctxguard.storage.repository_fingerprint import FingerprintRepository
 from ctxguard.utils.token_counter import estimate_tokens_from_payload, estimate_tokens_from_text
 
@@ -28,6 +14,22 @@ class CompressionPipeline:
     """Orchestrates request compression across guards, adaptive scheduler, compressors, and hooks."""
 
     def __init__(self, config: AppConfig, fingerprint_repo: Optional[FingerprintRepository] = None):
+        from ctxguard.core.compressors.ansi_cleaner import ANSICleaner
+        from ctxguard.core.compressors.progress_merger import ProgressMerger
+        from ctxguard.core.compressors.stacktrace import StacktraceFolder
+        from ctxguard.core.compressors.json_struct import JSONStructCompressor
+        from ctxguard.core.compressors.whitespace import WhitespaceCleaner
+        from ctxguard.core.compressors.dedup import DedupCompressor
+        from ctxguard.core.compressors.ast_code import ASTCodeCompressor
+        from ctxguard.core.compressors.git_diff import GitDiffCompressor
+        from ctxguard.core.guards.cache_guard import CacheGuard
+        from ctxguard.core.guards.output_shaper import OutputShaper
+        from ctxguard.core.guards.tools_normalizer import ToolsNormalizer
+        from ctxguard.core.adaptive_scheduler import AdaptiveScheduler
+        from ctxguard.core.virtual_tools.injector import VirtualToolInjector
+        from ctxguard.plugins.onnx.scorer import SemanticPruner
+        from ctxguard.utils.token_counter import estimate_tokens_from_payload, estimate_tokens_from_text
+
         self.config = config
         self.fingerprint_repo = fingerprint_repo
         self.cache_guard = CacheGuard(config.cache_guard)
