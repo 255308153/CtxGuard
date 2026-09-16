@@ -20,6 +20,62 @@
 **CtxGuard** is an ultra-lightweight, zero-config reverse proxy and request-side context governance gateway designed specifically for long-context Coding Agents (Claude Code, Pi Agent, Cursor, VSCode) and LLM applications.
 
 It sits transparently between your Agent harness and LLM providers (Anthropic, OpenAI, DeepSeek), intercepting outbound API calls to compress redundant tool outputs, stabilize Prompt Cache prefixes, manage temporal user memory, and shape model verbosity—**without modifying your code or sacrificing reasoning accuracy**.
+
+---
+
+## 🏛️ System Architecture
+
+```mermaid
+flowchart TD
+    subgraph ClientLayer["1. Client Ecosystem (Zero-Code Change)"]
+        A1["Cursor / VSCode"] 
+        A2["Claude Code"] 
+        A3["Pi Agent / Pi-Web"]
+        A4["OpenAI / Custom SDK"]
+    end
+
+    ClientLayer -->|HTTP POST /v1/chat or /v1/messages| GatewayIngress
+
+    subgraph CtxGuardGateway["2. CtxGuard Context & Security Gateway (Port 8787)"]
+        GatewayIngress["Gateway Ingress & Protocol Router"]
+
+        subgraph IngressPipeline["Request Optimization Pipeline"]
+            direction TB
+            P1["ToolsNormalizer<br/>(Recursive Alphabetical Key Order)"]
+            P2["Structural Compressors<br/>(GitDiff / ANSI / Stacktrace / AST)"]
+            P3["Fingerprint Pool & LRU<br/>(0-Token ctx_expand Cache)"]
+            P4["MemoryGraphEngine<br/>(3-Way Hybrid Retrieval & Tail Inject)"]
+            P5["OutputShaper<br/>(Verbosity Steering & Effort Routing)"]
+            P6["RawByteOverlayGuard<br/>(Byte-Slice Snapshot & 0-Drift Check)"]
+            
+            P1 --> P2 --> P3 --> P4 --> P5 --> P6
+        end
+
+        GatewayIngress --> IngressPipeline
+
+        subgraph BackgroundEngines["Background Autonomous Engines"]
+            B1["LoopDetector & PivotAnalyzer<br/>(Failure-to-Pivot Mining)"]
+            B2["RulePruner & AtomicRuleWriter<br/>(Supersede & 10-Item Cap Sync)"]
+            B3["SQLite Graph Store & Fingerprints<br/>(Embedded Zero-Maintenance DB)"]
+        end
+
+        IngressPipeline -.->|Async Logging & GC| BackgroundEngines
+        BackgroundEngines -.->|Sync Rules| C1[".cursorrules / CLAUDE.local.md"]
+    end
+
+    subgraph CloudProviders["3. Upstream LLM Providers"]
+        L1["Anthropic Claude 3.5 / 3.7"]
+        L2["OpenAI GPT-4o / o1 / o3 / GPT-5"]
+        L3["DeepSeek V3 / R1"]
+    end
+
+    IngressPipeline -->|High-Speed Forwarding (Keep-Alive / HTTP/2)| CloudProviders
+    CloudProviders -->|SSE Token Stream| GatewayEgress["SSE Stream Handler & Local Virtual Tool Interceptor"]
+    GatewayEgress -->|Streamed Tokens| ClientLayer
+```
+
+---
+
 ## 🚀 Key Features
 
 ### 1. 🔒 Prompt Cache Bit-Exact Stabilization (0-Drift Guarantee)
