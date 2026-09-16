@@ -358,3 +358,70 @@ def test_openai_responses_streaming_upstream_error_propagation(client, monkeypat
     assert "Incorrect API key provided" in resp.text
 
 
+def test_uncompressed_followup_turn_preserves_compressed_prefix(client, monkeypatch):
+    """Critical Cache Invariant Test:
+    When Turn 1 establishes a compressed prefix and Turn 2 has applied_compressors: [],
+    the gateway must NEVER passthrough raw client body_bytes. It must forward the re-serialized
+    compressed prefix to maintain 100% upstream KV Cache stability.
+    """
+    app_instance = client.app
+    upstream_client = app_instance.state.upstream
+    calls = []
+
+    async def mock_forward_request(url_path, payload, headers, provider_name=None, raw_body=None, **kwargs):
+        calls.append({"payload": payload, "raw_body": raw_body})
+        return httpx.Response(
+            status_code=200,
+            json={
+                "id": "chatcmpl-test",
+                "object": "chat.completion",
+                "model": "gpt-4o",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "OK"}}],
+                "usage": {"prompt_tokens": 50, "completion_tokens": 5, "prompt_tokens_details": {"cached_tokens": 40}},
+            },
+        )
+
+    monkeypatch.setattr(upstream_client, "forward_request", mock_forward_request)
+
+    # Turn 1: Request with repetitively compressible whitespace/ANSI
+    turn1_payload = {
+        "model": "gpt-4o",
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Line 1\n\n\n\n\nLine 2\x1b[31m colored \x1b[0m"},
+        ],
+        "stream": False,
+    }
+
+    resp1 = client.post("/p/test_proj/v1/chat/completions", json=turn1_payload)
+    assert resp1.status_code == 200
+    assert len(calls) == 1
+    # Turn 1 modified payload, so raw_body should be None (sent serialized payload)
+    assert calls[0]["raw_body"] is None
+
+    # Turn 2: Follow-up question in the SAME session. The suffix is clean plain text (applied_compressors = [])
+    turn2_payload = {
+        "model": "gpt-4o",
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "Line 1\n\n\n\n\nLine 2\x1b[31m colored \x1b[0m"},
+            {"role": "assistant", "content": "OK"},
+            {"role": "user", "content": "What is 1+1?"},
+        ],
+        "stream": False,
+    }
+
+    resp2 = client.post("/p/test_proj/v1/chat/completions", json=turn2_payload)
+    assert resp2.status_code == 200
+    assert len(calls) == 2
+
+    # CRITICAL ASSERTION:
+    # Turn 2 raw_body must be None (must NOT passthrough client's uncompressed raw bytes with \n\n\n\n\n and ANSI)
+    assert calls[1]["raw_body"] is None, "Gateway leaked raw client body on uncompressed follow-up turn!"
+
+    # Verify that Turn 2 forwarded payload contains the cleaned/compressed prefix from Turn 1
+    forwarded_user_msg = calls[1]["payload"]["messages"][1]["content"]
+    assert "\x1b[31m" not in forwarded_user_msg, "ANSI escape code was not cleaned in replayed prefix!"
+
+
+
