@@ -9,6 +9,7 @@ from ctxguard.cli.cmd_stats import execute_stats
 from ctxguard.cli.cmd_learn import execute_learn
 from ctxguard.cli.cmd_savings import execute_savings
 from ctxguard.cli.cmd_env import execute_env
+from ctxguard.cli.cmd_wrap import execute_wrap
 from ctxguard.utils.console import Console
 
 
@@ -69,6 +70,12 @@ def create_parser() -> argparse.ArgumentParser:
     env_parser.add_argument("--patch", action="store_true", help="Auto-detect and remember agent original upstreams and patch configs")
     env_parser.add_argument("--eval", action="store_true", help="Output shell export commands for eval $(ctxguard env)")
 
+    # 'wrap' command: auto-spawn proxy and launch target agent directly
+    wrap_parser = subparsers.add_parser("wrap", help="Start proxy automatically and launch target agent (claude | pi | codex | aider)")
+    wrap_parser.add_argument("agent", help="Target agent command to run (e.g. claude, pi, codex, aider)")
+    wrap_parser.add_argument("-p", "--port", type=int, default=8787, help="CtxGuard proxy port (default: 8787)")
+    wrap_parser.add_argument("extra_args", nargs="*", help="Extra arguments passed directly to the target agent")
+
     return parser
 
 
@@ -92,6 +99,8 @@ def main() -> None:
         execute_learn(args)
     elif args.command == "env":
         execute_env(args)
+    elif args.command == "wrap":
+        execute_wrap(args)
     else:
         parser.print_help()
 
