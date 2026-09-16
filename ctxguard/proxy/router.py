@@ -1009,30 +1009,36 @@ def create_router(
         start_time = time.perf_counter()
         body_bytes = await request.body()
         raw_body: Dict[str, Any] = orjson.loads(body_bytes) if body_bytes else {}
+        # Collect mutable text references (container, key_or_index)
         text_refs = []
         messages = []
-
-        def collect_text(value: Any, role: str = "user") -> None:
-            if isinstance(value, dict):
-                next_role = value.get("role", role)
-                for key, child in value.items():
-                    if key in {"text", "content", "input_text", "output_text"} and isinstance(child, str):
-                        text_refs.append((value, key))
-                        messages.append(Message(role=next_role, content=child))
-                    elif key not in {"signature", "encrypted_content"}:
-                        collect_text(child, next_role)
-            elif isinstance(value, list):
-                for child in value:
-                    collect_text(child, role)
-            elif isinstance(value, str):
-                text_refs.append((raw_body, "input"))
-                messages.append(Message(role=role, content=value))
 
         instructions = raw_body.get("instructions")
         if isinstance(instructions, str):
             text_refs.append((raw_body, "instructions"))
             messages.append(Message(role="system", content=instructions))
-        collect_text(raw_body.get("input", []))
+
+        def walk_input(obj: Any, role: str = "user") -> None:
+            if isinstance(obj, dict):
+                r = obj.get("role", role)
+                for k, v in list(obj.items()):
+                    if k in {"text", "content", "input_text", "output_text"} and isinstance(v, str):
+                        text_refs.append((obj, k))
+                        messages.append(Message(role=r, content=v))
+                    elif k not in {"signature", "encrypted_content"}:
+                        walk_input(v, r)
+            elif isinstance(obj, list):
+                for idx, item in enumerate(obj):
+                    if isinstance(item, str):
+                        text_refs.append((obj, idx))
+                        messages.append(Message(role=role, content=item))
+                    else:
+                        walk_input(item, role)
+            elif isinstance(obj, str):
+                text_refs.append((raw_body, "input"))
+                messages.append(Message(role=role, content=obj))
+
+        walk_input(raw_body.get("input", []))
 
         norm_req = NormalizedRequest(
             protocol="openai",
@@ -1050,13 +1056,18 @@ def create_router(
         norm_req.provider = provider_name
 
         req_ctx = await pipeline.process(norm_req)
-        for ref, message in zip(text_refs, req_ctx.request.messages):
-            ref[0][ref[1]] = message.get_text_content()
 
+        # Only mutate JSON fields if compression was actually applied and lengths strictly match
+        if req_ctx.applied_compressors and len(text_refs) == len(req_ctx.request.messages):
+            for (container, key), message in zip(text_refs, req_ctx.request.messages):
+                container[key] = message.get_text_content()
+
+        can_passthrough_raw = not req_ctx.applied_compressors
+        fwd_bytes = body_bytes if can_passthrough_raw else orjson.dumps(raw_body)
         upstream_payload = raw_body
         headers = upstream.build_headers("openai", upstream.resolve_provider(provider_name), dict(request.headers))
         path = "v1/responses"
-        fwd_kwargs = {"raw_body": orjson.dumps(upstream_payload)}
+        fwd_kwargs = {"raw_body": fwd_bytes}
         duration_ms = (time.perf_counter() - start_time) * 1000
         if req_ctx.original_tokens > req_ctx.optimized_tokens:
             record_savings_event(

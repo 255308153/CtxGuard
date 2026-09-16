@@ -72,3 +72,14 @@ ctxguard.local.yaml
 :memory:
 .ctxguard/
 .obsidian/
+
+# Exclude all docs and resume output from github tracking
+docs/
+*.md
+!README.md
+!USAGE.md
+!DEVELOPMENT_GUIDE.md
+!pyproject.toml
+output/
+resume/
+面试问答/
