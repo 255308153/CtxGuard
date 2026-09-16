@@ -50,17 +50,27 @@ class SemanticPruner(BaseCompressor):
         return "semantic_pruner"
 
     def is_applicable(self, context: RequestContext) -> bool:
-        # Cache-Aware Invariant: If session already has active cloud KV cache,
-        # never run lossy semantic pruning unless in 'deep' extreme compression mode,
-        # ensuring 100% prefix byte stability and KV cache hit rate (Cache > Lossy Compression).
+        """
+        Headroom-aligned gating: Neural/Semantic ML compression is ONLY invoked when:
+        1. Context explicitly entered 'deep' extreme mode or explicit target_prune_ratio < 0.95.
+        2. If active cloud KV cache exists, only run in extreme 'deep' mode to preserve cache stability.
+        3. Lossless compressors (GitDiff, AST, Dedup) were insufficient and tokens remain critical.
+        """
+        # Gating 1: Cache safety check
         if context.state.get("has_active_cache", False):
             mode = context.state.get("compression_mode", "lossless")
             if mode != "deep":
                 return False
 
-        # Activated when active level is 'deep' or explicit target_prune_ratio < 0.95
+        # Gating 2: Mode activation check (Lossless-then-Lossy Ladder)
         mode = context.state.get("compression_mode", "lossless")
-        return mode in {"deep", "semantic"} or context.state.get("target_prune_ratio", 1.0) < 0.95
+        is_mode_active = mode in {"deep", "semantic"} or context.state.get("target_prune_ratio", 1.0) < 0.95
+        if not is_mode_active:
+            return False
+
+        # Gating 3: Only trigger if tokens exceed threshold or explicitly configured
+        level = getattr(context, "active_level", 2)
+        return level >= 2 or mode == "deep"
 
     def process(self, context: RequestContext, target_messages: list[Message]) -> None:
         """Process target messages in place using dynamic target_prune_ratio from context state."""
