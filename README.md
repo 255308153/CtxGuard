@@ -2,9 +2,9 @@
 
 <div align="center">
 
-**面向大模型与 AI Agent 的超轻量、零侵入上下文治理与长效记忆网关**
+**高并发、低延迟的 AI Agent 上下文治理与智能缓存加速网关**
 
-*削减 50%~80% Token 开销 • 守护云端 Prompt Cache 100% 命中 • 零代码改造 • 亚毫秒级延迟*
+*毫秒级算子流水线 • 保证云端 KV Cache 稳定命中 • 长效时序记忆 • 零业务侵入*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -15,172 +15,174 @@
 
 ---
 
-## ⚡ 什么是 CtxGuard？
+## 📖 项目简介
 
-**CtxGuard** 是一款专为长对话 Coding Agent（如 Claude Code、Pi Agent、Cursor、VSCode）及大模型应用设计的超轻量反向代理与**请求侧上下文治理安全网关**。
+在现代 AI Agent（如 Claude Code、Cursor、Pi Agent）的复杂编码与长链路自动化任务中，随着工具调用的频繁执行，请求上下文呈现指数级膨胀：大段未修改的代码差异、冗长的构建日志和重复堆栈迅速消耗宝贵的上下文窗口，并产生高昂的 Token 费用；与此同时，客户端工具定义的无序序列化与动态提示词拼接极易引发服务商前缀缓存（Prompt Cache）频繁失效。
 
-它以透明代理方式部署在开发者本地，介于 Agent 客户端与大模型服务商（Anthropic、OpenAI、DeepSeek）之间。通过实时拦截出向 API 请求，在**不修改任何客户端业务代码、不影响大模型推理精度**的前提下，实现工具冗余输出压缩、Prompt Cache 前缀物理防抖、时序偏好记忆安全召回、失败经验自进化提炼及模型输出端降噪。
+**CtxGuard** 是一套部署在客户端与大模型服务商（OpenAI、Anthropic、DeepSeek 等）之间的透明反向代理网关。它在协议中转层对出向请求实施轻量级结构化优化与字节级防抖，在完全不损耗模型推理能力与代码逻辑的前提下，显著降低通信负载与计算开销，并为多轮会话提供自动进化的项目级经验沉淀与知识图谱记忆能力。
 
 ---
 
-## 🏛️ 系统架构图
+## 🏛️ 系统架构
 
 ```mermaid
 flowchart TD
-    subgraph ClientLayer["1. 客户端生态层 (零代码侵入)"]
-        A1["Cursor / VSCode"] 
-        A2["Claude Code"] 
+    subgraph ClientLayer["客户端生态接入 (支持标准 OpenAI / Anthropic 协议)"]
+        A1["Cursor / VSCode 插件"] 
+        A2["Claude Code CLI"] 
         A3["Pi Agent / Pi-Web"]
-        A4["OpenAI / 官方 SDK"]
+        A4["自动化工作流 / 官方 SDK"]
     end
 
-    ClientLayer -->|HTTP POST /v1/chat 或 /v1/messages| GatewayIngress
+    ClientLayer -->|HTTP API 请求| GatewayIngress
 
-    subgraph CtxGuardGateway["2. CtxGuard 上下文治理网关 (监听 8787 端口)"]
-        GatewayIngress["网关统一入口 & 多协议智能路由器"]
+    subgraph CtxGuardGateway["CtxGuard 代理网关服务 (默认端口 8787)"]
+        GatewayIngress["请求路由与多协议适配分发器"]
 
-        subgraph IngressPipeline["请求侧优化核心流水线"]
+        subgraph IngressPipeline["流水线核心处理算子"]
             direction TB
-            P1["工具与Schema归一化 (ToolsNormalizer)<br/>深度递归字母序重排，阻断键序抖动"]
-            P2["结构化专用压缩算子矩阵<br/>GitDiff折叠 / ANSI清洗 / 重复堆栈合并 / AST修剪"]
-            P3["内容指纹库与LRU容量淘汰 (FingerprintPool)<br/>长文本去重，支持 0-Token 虚拟解压"]
-            P4["时序知识图谱记忆引擎 (MemoryGraphEngine)<br/>BM25+向量+图谱三路混合检索，User尾部安全注入"]
-            P5["输出端Token塑造器 (OutputShaper)<br/>冗余客套修剪 & 机械轮次思考预算动态降级"]
-            P6["原始字节切片防抖门禁 (RawByteOverlayGuard)<br/>未修改前缀直传二进制切片，保证 0-Drift"]
+            P1["工具定义字母序重排<br/>消除客户端 Schema 键序随机抖动"]
+            P2["专用文本与结构压缩器<br/>Git Diff 差异折叠 / 终端控制码清洗 / 堆栈合并"]
+            P3["全局指纹库与 LRU 淘汰池<br/>历史长文本秒级去重，支持 0-Token 原文解压"]
+            P4["跨会话时序记忆图谱<br/>BM25 + 向量语义 + 实体关联混合检索"]
+            P5["输出端冗余抑制器<br/>提示词末尾注入稳定哨兵，精简模型回复套话"]
+            P6["原始字节流切片防抖校验<br/>未改动前缀直传二进制切片，确保哈希零漂移"]
             
             P1 --> P2 --> P3 --> P4 --> P5 --> P6
         end
 
         GatewayIngress --> IngressPipeline
 
-        subgraph BackgroundEngines["后台异步自进化与持久化引擎"]
-            B1["死循环扫描与失败转折分析 (LoopDetector & PivotAnalyzer)<br/>从错误到成功的因果经验自动提炼"]
-            B2["规则剪枝与原子覆盖 (RulePruner & AtomicWriter)<br/>同源冲突覆盖，10条预算硬截断，原子写入规则文件"]
-            B3["内嵌 SQLite 图谱库与指纹缓存池<br/>零维护本地持久化"]
+        subgraph BackgroundEngines["后台异步自治与规则管理"]
+            B1["交互轨迹与失败转折挖掘器<br/>捕获死循环与有效修复动作"]
+            B2["规则冲突消解与上限控制<br/>基于版本覆盖与预算截断，原子同步规则文件"]
+            B3["轻量嵌入式图数据库<br/>本地零依赖持久化存储"]
         end
 
-        IngressPipeline -.->|异步日志与事件流| BackgroundEngines
-        BackgroundEngines -.->|原子更新| C1[".cursorrules / CLAUDE.local.md"]
+        IngressPipeline -.->|异步事件上报| BackgroundEngines
+        BackgroundEngines -.->|写入项目规范| C1[".cursorrules / CLAUDE.local.md"]
     end
 
-    subgraph CloudProviders["3. 云端大模型服务商"]
-        L1["Anthropic Claude 3.5 / 3.7"]
-        L2["OpenAI GPT-4o / o1 / o3 / GPT-5"]
-        L3["DeepSeek V3 / R1"]
+    subgraph CloudProviders["云端大模型服务商"]
+        L1["Anthropic Claude 系列"]
+        L2["OpenAI GPT / o 系列"]
+        L3["DeepSeek 系列"]
     end
 
-    IngressPipeline -->|高并发连接池 Keep-Alive / HTTP/2| CloudProviders
-    CloudProviders -->|SSE 流式 Token| GatewayEgress["SSE 流式处理器 & 本地虚拟工具拦截器"]
-    GatewayEgress -->|打字机流式回传| ClientLayer
+    IngressPipeline -->|Keep-Alive 长连接转发| CloudProviders
+    CloudProviders -->|SSE 流式响应| GatewayEgress["流式事件分发与本地虚拟工具执行器"]
+    GatewayEgress -->|低延迟流式回传| ClientLayer
 ```
 
 ---
 
-## 🚀 六大核心特性
+## 💡 核心设计与技术实现
 
-### 1. 🔒 Prompt Cache 物理级绝对防抖 (0 字节漂移保证)
-- **会话前缀快照冻结 (Session Prefix Freeze)**：会话首部系统提示词与历史结构快照锁定，杜绝会话中途修改规则引起的缓存击穿。
-- **Schema 递归归一化 (`ToolsNormalizer`)**：对 `tools[]` 列表及嵌套 JSON Schema 属性进行深度字典序重排，彻底消除客户端无序字典导致的缓存失效。
-- **原始二进制切片直传 (`RawByteOverlayGuard`)**：针对未修改的冻结前缀跳过 Python 反序列化，直传原始 HTTP 二进制切片，确保头部 SHA-256 哈希绝对一致，稳定吃满云端 50%~90% KV Cache 缓存折扣。
+### 1. 物理级前缀防抖与缓存保活
+- **二进制切片透传**：对多轮对话中未发生变更的历史消息，跳过 Python 运行时的反序列化与字典重构，直接提取并转发原始 HTTP 请求的底层二进制切片，从根本上杜绝空格、换行符及浮点格式漂移。
+- **Schema 确定性重构**：在网关层递归遍历 `tools` 列表及内部 JSON Schema 定义，统一按字母序进行确定性重排序，彻底解决各类客户端实现中字典无序导致的前缀缓存击穿。
+- **生命周期冷热隔离**：将上下文划分为静态系统区与动态交互区。会话建立后自动锁定头部提示词快照，动态注入项仅追加于末尾活跃窗口，保证长对话全生命周期的前缀哈希绝对稳定。
 
-### 2. 🗜️ 十级结构化专用压缩算子矩阵
-- **Git Diff 上下文行折叠 (`GitDiffCompressor`)**：精准识别 Unified Diff 语法，严格保留修改行（`+`/`-`）与 Hunk 头部，自动折叠无变动的长上下文行（**单项节约 48.6% Token，耗时仅 0.15ms**）。
-- **终端 ANSI 与进度条清洗**：正则擦除控制乱码，合并构建工具刷出的数十次进度条，仅保留 100% 最终完成帧。
-- **异常堆栈折叠 (`StacktraceFolder`)**：自动合并循环死磕时连续打印的重复报错堆栈。
-- **AST 代码骨架修剪**：大文件首次读取时自动修剪函数体，提取紧凑接口定义与函数签名。
+### 2. 面向开发场景的专用结构压缩算子
+- **统一差异格式（Unified Diff）智能折叠**：自动解析 Git 补丁语法，完整保留修改行与定位锚点，将大段无修改的上下文行替换为引用标记，支持在需要时无损还原。
+- **终端交互乱码与进度条合并**：正则过滤 ANSI 转义字符与终端颜色控制码；对包管理工具及构建流水线连续打印的百分比进度条进行帧合并，仅保留最终完成状态。
+- **异常堆栈模式折叠**：自动识别多轮重试过程中连续出现的同源 Traceback 堆栈，保留首次发生时的完整上下文并折叠后续重复信息。
 
-### 3. 🔄 可逆去重与 0-Token 本地瞬时还原
-- **内容指纹池 (`FingerprintRepository`)**：大文本按块哈希入库，引入访问频次与时间戳加权的 **LRU 自动容量淘汰**机制。
-- **虚拟工具 `ctx_expand`**：历史重复文件替换为精简引用标记。当大模型需要查看完整细节时，网关在本地毫秒级拦截 `ctx_expand` 并还原原文，**消耗 0 上游 Token、产生 0 网络延迟**。
+### 3. 可逆内容指纹池与零开销还原
+- **持久化块级哈希池**：提取请求中超过阈值的长文本块计算 SHA-256 指纹并存入轻量数据库，跨轮次或跨会话再次出现相同内容时自动替换为轻量占位标记。
+- **LRU 动态容量自平衡**：根据文本访问频次与时间戳执行最近最少使用淘汰，确保本地缓存体积恒定可控。
+- **本地虚拟工具拦截**：向客户端透明暴露解压接口，当模型发出展开请求时，由网关在本地毫秒级读取并返回原始内容，无需向上游发起二次计费网络请求。
 
-### 4. 🧠 时序知识图谱与三路混合记忆检索
-- **三路混合召回**：结合 BM25 关键词精确匹配、稠密向量语义相似度及知识图谱关系推理，原生支持中文双字分词与四级作用域（USER / PROJECT / SESSION / TURN）。
-- **缓存安全尾部注入**：召回的事实偏好严格追加在最新一轮用户提问末尾（微观热区），绝不破坏头部历史前缀缓存。
-- **虚拟工具 `memory_save` & `memory_search`**：支持大模型在交互中主动调用标准工具记笔记，网关出口本地拦截落库。
+### 4. 时序知识图谱与上下文混合召回
+- **多模态语义检索**：结合 BM25 词频统计、稠密向量嵌入以及图谱实体关联进行三路加权打分，精准召回与当前任务相关的环境事实及开发偏好。
+- **动态尾部安全注入**：将匹配到的背景知识以紧凑格式附加于当前轮次用户提问尾部，既保证模型即时感知上下文，又杜绝污染历史前缀缓存。
+- **中文自然语言理解增强**：针对中文开发者的常用习惯短语与口语化偏好进行分词与谓词识别，过滤无效疑问句与停用词。
 
-### 5. 🛠️ 因果自进化与规则淘汰引擎
-- **失败转折因果复盘 (`PivotAnalyzer`)**：自动寻找从报错失败到探索成功的关键转折点（Turning Point），自动提炼路径修正与环境命令规则。
-- **规则预算硬截断 (`RulePruner`)**：自动覆盖同触发源的旧规则（Supersede），设定 10 条上限预算截断，防止规则库无限排队膨胀。
-- **原子标记覆盖 (`AtomicRuleWriter`)**：以 `<!-- ctxguard:learn:start -->` 标准边界标记幂等重写 `.cursorrules` 和 `CLAUDE.local.md`，绝不覆盖开发者手写的全局配置。
+### 5. 失败模式自主学习与规则生命周期治理
+- **转折点（Pivot）因果归因**：后台异步扫描交互轨迹，定位“工具连续报错 ➜ 调整参数 ➜ 执行成功”的关键行为序列，自动提取路径修正与环境运行规范。
+- **规则去重与容量硬上限**：对同类触发条件的旧规则执行自动版本替换，并设立严格的数量上限（默认 10 条），淘汰低频规则以防止规则库过度膨胀。
+- **原子标记区域同步**：通过专用的注释边界标记，将提炼后的最佳实践以原子覆盖方式写入项目配置文件，绝不覆盖用户手动编写的配置内容。
 
-### 6. ✂️ 输出端 Token 压缩与行为塑造
-- **冗余套话动态修剪**：在提示词末尾注入字节稳定型控制哨兵，分级消除开场客套、结尾总结与已有代码的重复复述。
-- **思考预算动态降级**：状态机自动识别机械轮次（如文件读取、测试通过）与复杂推理轮次，自适应降低机械轮次的思考强度，**实测输出侧 Token 净降 30.7%**。
+### 6. 输出端 Token 抑制与思考预算动态调度
+- **响应风格确定性引导**：在请求末尾追加字节稳定的格式约定，指导大模型精简无意义的寒暄、前置铺垫以及对上下文已有代码的重复打印。
+- **交互状态感知降级**：通过状态机区分机械操作轮次（如文件内容回传）与复杂逻辑分析轮次，在过渡阶段适度下调思考开销，进一步降低响应延迟与生成成本。
 
 ---
 
-## 📦 快速上手
+## 🚀 快速上手
 
-### 源码安装
+### 环境准备与安装
 
 ```bash
-# 克隆仓库
+# 克隆工程
 git clone https://github.com/255308153/CtxGuard.git
 cd CtxGuard
 
-# 本地可编辑模式安装
+# 本地安装
 pip install -e .
 ```
 
-### 1. 启动网关服务
+### 1. 启动本地网关
 
 ```bash
-# 启动 CtxGuard 代理网关（默认端口 8787）
+# 启动代理服务（默认监听 127.0.0.1:8787）
 ctxguard start --port 8787
 ```
 
-- **可视化控制面板**：浏览器访问 `http://127.0.0.1:8787/dashboard` 查看实时 Token 流量折线图与知识图谱。
+服务启动后，可在浏览器中打开 Web 监控看板：`http://127.0.0.1:8787/dashboard` 查看实时请求流量、Token 压缩曲线与图谱状态。
 
 ---
 
-### 2. 连接你的 Agent 客户端生态
+### 2. 客户端生态接入
 
-#### 方式 A：终端 Shell 一键环境变量注入 (推荐 CLI Agent)
+#### 方式一：终端 Shell 快速注入（推荐 CLI 工具使用）
 ```bash
-# 自动导出网关代理地址至当前终端
+# 自动设置当前终端会话的环境变量
 eval $(ctxguard env --eval)
 
-# 直接启动你的主力 Agent（无缝接管）：
-claude          # 启动 Claude Code
-pi              # 启动 Pi Agent
+# 启动你的 Agent 即可自动享受代理加速：
+claude          # 运行 Claude Code
+pi              # 运行 Pi Agent
 ```
 
-#### 方式 B：全自动客户端配置扫描与补丁 (Cursor / VSCode)
+#### 方式二：全自动客户端配置桥接（Cursor / VSCode）
 ```bash
-# 自动扫描本地客户端配置，记忆原有中转站并一键桥接至网关
+# 自动检测本地客户端配置，保留原有 API 密钥并建立网关代理连接
 ctxguard env --patch
 ```
 
-#### 方式 C：图形客户端手动填写 Base URL
-在客户端设置中将 API Base 地址指向本地网关：
-- **OpenAI 兼容协议 (GPT / DeepSeek)**：`http://127.0.0.1:8787/v1`
-- **Anthropic 兼容协议 (Claude Code)**：`http://127.0.0.1:8787`
+#### 方式三：手动配置服务端点
+在任意兼容 OpenAI 或 Anthropic 协议的工具中配置代理地址：
+- **OpenAI 兼容端点 (GPT / DeepSeek)**：`http://127.0.0.1:8787/v1`
+- **Anthropic 兼容端点 (Claude Code)**：`http://127.0.0.1:8787`
 
 ---
 
-## 📊 性能与节省基准计分板
+## 📈 基准测试与优化表现
 
-| 评测基准场景 | 原始 Token 消耗 | 优化后 Token 消耗 | Token 净节省率 | 压缩处理延迟 (p50) |
+使用标准评测集在真实多轮编码会话场景下的测量数据：
+
+| 评测场景与优化维度 | 原始 Token 量 | 优化后 Token 量 | 节省比例 | 处理延迟 (p50) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Git Diff 审查折叠** | 383 | 197 | **48.56%** | `0.15 ms` |
-| **重复文件读取 (指纹去重)** | 4,200 | 45 | **98.92%** | `0.08 ms` |
-| **终端构建与运行日志** | 1,850 | 320 | **82.70%** | `0.12 ms` |
-| **10 轮真实 Agent 完整轨迹** | 6,735 | 5,584 | **17.09%** | `0.21 ms` |
-| **输出端行为塑造** | 1,240 (输出) | 860 (输出) | **30.70%** | `0.00 ms` |
+| **Git Diff 补丁上下文折叠** | 383 | 197 | **48.56%** | `0.15 ms` |
+| **历史大文件重复引用** | 4,200 | 45 | **98.92%** | `0.08 ms` |
+| **构建日志与终端控制码** | 1,850 | 320 | **82.70%** | `0.12 ms` |
+| **多轮端到端 Coding 轨迹** | 6,735 | 5,584 | **17.09%** | `0.21 ms` |
+| **模型输出端精简与塑造** | 1,240 (Output) | 860 (Output) | **30.70%** | `0.00 ms` |
 
 ---
 
-## 💻 常用 CLI 终端命令
+## 🛠️ CLI 命令速查
 
 ```bash
-ctxguard stats            # 查看实时 Token 优化指标与近期请求流水
-ctxguard savings          # 查看长期累积财务省钱账本与进度条
-ctxguard learn --apply    # 扫描历史失败轨迹，提炼并同步项目规则
-ctxguard env              # 查看全生态 Agent 连接预设与环境命令
+ctxguard stats            # 查看网关当前的吞吐量、压缩效率与近期待处理请求
+ctxguard savings          # 查看长周期的 Token 与成本节约明细
+ctxguard learn --apply    # 手动触发历史轨迹复盘并更新项目规则
+ctxguard env              # 查看或导出各客户端的环境变量配置
 ```
 
 ---
 
 ## 📄 开源许可证
 
-本项目基于 [MIT License](LICENSE) 协议开源。
+本项目基于 [MIT License](LICENSE) 许可证开源发布。
