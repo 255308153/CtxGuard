@@ -166,6 +166,7 @@ class TargetFileConfig:
 
 @dataclass
 class LearnConfig:
+    enabled: bool = True
     storage_db: str = ".ctxguard.db"
     detect_loop_threshold: int = 3
     target_files: List[TargetFileConfig] = field(default_factory=lambda: [

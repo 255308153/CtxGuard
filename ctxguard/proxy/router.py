@@ -851,8 +851,8 @@ def create_router(
                     media_type="application/json",
                 )
 
-        # 1.5 Personal Knowledge Graph Injection & Learning
-        if graph_engine:
+        # 1.5 Personal Knowledge Graph Injection & Learning (Controlled by Config Switch)
+        if graph_engine and getattr(getattr(config, "piggyback_extraction", None), "enabled", True):
             try:
                 temp_ctx = RequestContext(request=norm_req)
                 graph_engine.inject_graph_context(temp_ctx)
@@ -1002,8 +1002,14 @@ def create_router(
 
     @router.post("/v1/responses")
     @router.post("/responses")
+    @router.post("/v1/codex/responses")
+    @router.post("/backend-api/codex/responses")
+    @router.post("/backend-api/responses")
     @router.post("/p/{project}/v1/responses")
     @router.post("/p/{project}/responses")
+    @router.post("/p/{project}/v1/codex/responses")
+    @router.post("/p/{project}/backend-api/codex/responses")
+    @router.post("/p/{project}/backend-api/responses")
     async def openai_responses(request: Request) -> Response:
         """Proxy OpenAI Responses API requests used by Codex."""
         start_time = time.perf_counter()
@@ -1014,18 +1020,19 @@ def create_router(
         messages = []
 
         instructions = raw_body.get("instructions")
-        if isinstance(instructions, str):
-            text_refs.append((raw_body, "instructions"))
-            messages.append(Message(role="system", content=instructions))
+        system_str = instructions if isinstance(instructions, str) else None
 
         def walk_input(obj: Any, role: str = "user") -> None:
             if isinstance(obj, dict):
                 r = obj.get("role", role)
+                # Skip additional_tools containers from text mutation
+                if obj.get("type") == "additional_tools":
+                    return
                 for k, v in list(obj.items()):
                     if k in {"text", "content", "input_text", "output_text"} and isinstance(v, str):
                         text_refs.append((obj, k))
                         messages.append(Message(role=r, content=v))
-                    elif k not in {"signature", "encrypted_content"}:
+                    elif k not in {"signature", "encrypted_content", "tools"}:
                         walk_input(v, r)
             elif isinstance(obj, list):
                 for idx, item in enumerate(obj):
@@ -1044,6 +1051,7 @@ def create_router(
             protocol="openai",
             model=str(raw_body.get("model", "gpt-5")),
             messages=messages,
+            system=system_str,
             stream=bool(raw_body.get("stream", False)),
             raw_payload=raw_body,
             session_id=request.headers.get("x-session-id", "default"),
@@ -1066,7 +1074,16 @@ def create_router(
         fwd_bytes = body_bytes if can_passthrough_raw else orjson.dumps(raw_body)
         upstream_payload = raw_body
         headers = upstream.build_headers("openai", upstream.resolve_provider(provider_name), dict(request.headers))
-        path = "v1/responses"
+        
+        req_path = request.url.path
+        if "/backend-api/" in req_path:
+            idx = req_path.find("/backend-api/")
+            path = req_path[idx + 1:]
+        elif "/v1/codex/" in req_path:
+            idx = req_path.find("/v1/codex/")
+            path = req_path[idx + 1:]
+        else:
+            path = "v1/responses"
         fwd_kwargs = {"raw_body": fwd_bytes}
         duration_ms = (time.perf_counter() - start_time) * 1000
         if req_ctx.original_tokens > req_ctx.optimized_tokens:
@@ -1092,11 +1109,41 @@ def create_router(
             )
 
         if norm_req.stream:
-            stream_gen = upstream.forward_stream(path, headers=headers, provider_name=provider_name, **fwd_kwargs)
+            try:
+                upstream_resp = await upstream.send_stream_request(
+                    path, headers=headers, provider_name=provider_name, **fwd_kwargs
+                )
+            except Exception as exc:
+                return JSONResponse(
+                    {"error": {"message": f"CtxGuard upstream connection error: {str(exc)}", "code": 502}},
+                    status_code=502,
+                )
+
+            if upstream_resp.status_code >= 400:
+                try:
+                    error_bytes = await upstream_resp.aread()
+                finally:
+                    await upstream_resp.aclose()
+                return Response(
+                    content=error_bytes,
+                    status_code=upstream_resp.status_code,
+                    media_type=upstream_resp.headers.get("content-type") or "application/json",
+                )
+
+            async def body_generator():
+                try:
+                    async for chunk in upstream_resp.aiter_bytes():
+                        if chunk:
+                            yield chunk
+                finally:
+                    await upstream_resp.aclose()
+
+            media_type = upstream_resp.headers.get("content-type") or "text/event-stream"
             return StreamingResponse(
-                SSEStreamHandler.passthrough_stream(stream_gen, protocol="openai"),
-                media_type="text/event-stream",
+                SSEStreamHandler.passthrough_stream(body_generator(), protocol="openai"),
+                media_type=media_type,
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+                status_code=upstream_resp.status_code,
             )
 
         resp = await upstream.forward_request(path, headers=headers, provider_name=provider_name, **fwd_kwargs)
@@ -1106,6 +1153,33 @@ def create_router(
             media_type="application/json",
             headers={"X-CtxGuard-Saved-Ratio": str(req_ctx.compression_ratio)},
         )
+
+    @router.get("/backend-api/codex/models")
+    @router.get("/backend-api/models")
+    @router.get("/backend-api/me")
+    @router.api_route("/backend-api/{sub_path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+    @router.api_route("/v1/codex/{sub_path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+    async def codex_backend_passthrough(request: Request, sub_path: str = "") -> Response:
+        """Generic passthrough for auxiliary Codex client backend routes."""
+        provider_name = request.headers.get("x-ctxguard-provider") or ("codex" if "codex" in config.upstream.providers else config.upstream.default_provider)
+        headers = upstream.build_headers("openai", upstream.resolve_provider(provider_name), dict(request.headers))
+        req_path = request.url.path.lstrip("/")
+        body_bytes = await request.body()
+        client = upstream.get_client()
+        provider = upstream.resolve_provider(provider_name)
+        full_url = upstream.build_full_url(provider, req_path)
+        if request.url.query:
+            full_url = f"{full_url}?{request.url.query}"
+        try:
+            resp = await client.request(
+                method=request.method,
+                url=full_url,
+                headers=headers,
+                content=body_bytes if body_bytes else None,
+            )
+            return Response(content=resp.content, status_code=resp.status_code, headers=dict(resp.headers))
+        except Exception as exc:
+            return JSONResponse({"error": {"message": f"CtxGuard upstream error: {str(exc)}", "code": 502}}, status_code=502)
 
     @router.post("/v1/messages")
     @router.post("/messages")
@@ -1204,8 +1278,8 @@ def create_router(
                     media_type="application/json",
                 )
 
-        # 1.5 Personal Knowledge Graph Injection & Learning
-        if graph_engine:
+        # 1.5 Personal Knowledge Graph Injection & Learning (Controlled by Config Switch)
+        if graph_engine and getattr(getattr(config, "piggyback_extraction", None), "enabled", True):
             try:
                 temp_ctx = RequestContext(request=norm_req)
                 graph_engine.inject_graph_context(temp_ctx)
