@@ -6,6 +6,7 @@ import time
 import urllib.request
 from typing import List
 
+from ctxguard.cli.config_patcher import AgentConfigAutoDetector
 from ctxguard.utils.console import Console
 
 def _ensure_proxy_running(port: int = 8787) -> None:
@@ -43,7 +44,10 @@ def execute_wrap(args) -> None:
     port = args.port
     extra_args = args.extra_args or []
 
-    # 1. Ensure proxy gateway is running
+    # 1. Auto-discover and remember agent's existing upstream config before launch
+    AgentConfigAutoDetector.discover_and_save_upstreams()
+
+    # 2. Ensure proxy gateway is running
     _ensure_proxy_running(port)
 
     # 2. Build isolated subprocess environment
