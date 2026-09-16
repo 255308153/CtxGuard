@@ -883,7 +883,7 @@ def create_router(
         has_compressed_history = False
         if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
             prev_forwarded = pipeline.cache_guard._last_forwarded_messages.get(session_id)
-            if prev_forwarded and (req_ctx.original_tokens > req_ctx.optimized_tokens or req_ctx.optimized_tokens < req_ctx.original_tokens):
+            if prev_forwarded:
                 has_compressed_history = True
 
         can_passthrough_raw = (
@@ -1079,7 +1079,17 @@ def create_router(
             for (container, key), message in zip(text_refs, req_ctx.request.messages):
                 container[key] = message.get_text_content()
 
-        can_passthrough_raw = not req_ctx.applied_compressors
+        has_compressed_history = False
+        if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+            prev_forwarded = pipeline.cache_guard._last_forwarded_messages.get(session_id)
+            if prev_forwarded:
+                has_compressed_history = True
+
+        can_passthrough_raw = (
+            not req_ctx.applied_compressors
+            and not has_compressed_history
+            and (req_ctx.original_tokens == req_ctx.optimized_tokens)
+        )
         fwd_bytes = body_bytes if can_passthrough_raw else orjson.dumps(raw_body)
         upstream_payload = raw_body
         headers = upstream.build_headers("openai", upstream.resolve_provider(provider_name), dict(request.headers))
@@ -1305,11 +1315,16 @@ def create_router(
         provider = upstream.resolve_provider(provider_name)
         headers = upstream.build_headers("anthropic", provider, client_headers)
 
-        # Check if request payload was modified by compressors, graph injection, or model changes.
-        # CRITICAL CACHE INVARIANT (Iron Invariant 3 & 1):
-        # If no modifications occurred, forward raw client bytes verbatim to ensure 100% SHA-256 byte parity!
+        has_compressed_history = False
+        if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+            prev_forwarded = pipeline.cache_guard._last_forwarded_messages.get(session_id)
+            if prev_forwarded:
+                has_compressed_history = True
+
         can_passthrough_raw = (
             not req_ctx.applied_compressors
+            and not has_compressed_history
+            and (req_ctx.original_tokens == req_ctx.optimized_tokens)
             and not req_ctx.metadata.get("graph_injected")
             and (raw_body.get("model") == upstream_payload.get("model"))
         )
