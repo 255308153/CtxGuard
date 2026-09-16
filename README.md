@@ -41,7 +41,7 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 
 <div align="center">
 
-![CtxGuard 1.0 System Architecture](assets/architecture_diagram.jpg)
+![CtxGuard 1.0 System Architecture](assets/architecture_diagram.png)
 
 </div>
 
