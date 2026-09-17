@@ -219,13 +219,13 @@ class CacheGuard:
                 # Replay frozen system prompt to guarantee 100% prefix byte stability
                 request.system = self._frozen_system_prompts[session_id]
 
-            leading_sys = [m for m in messages if m.role == "system"]
+            leading_sys = [m for m in messages if m.role in ("system", "developer")]
             if session_id not in self._frozen_system_messages and leading_sys:
                 self._frozen_system_messages[session_id] = [copy.deepcopy(m) for m in leading_sys]
             elif session_id in self._frozen_system_messages:
                 frozen_sys = self._frozen_system_messages[session_id]
                 for s_i, f_msg in enumerate(frozen_sys):
-                    if s_i < len(messages) and messages[s_i].role == "system":
+                    if s_i < len(messages) and messages[s_i].role in ("system", "developer"):
                         messages[s_i] = copy.deepcopy(f_msg)
 
         # 2. Dynamic Token-to-Message Bound Reverse Mapping & Historical Replay
@@ -254,7 +254,7 @@ class CacheGuard:
         # Fallback to system prompt freeze if dynamic count is below leading system messages
         start_idx = 0
         if self.config.freeze_system_prompt:
-            while start_idx < len(messages) and messages[start_idx].role == "system":
+            while start_idx < len(messages) and messages[start_idx].role in ("system", "developer"):
                 start_idx += 1
             frozen_count = max(frozen_count, start_idx)
 
@@ -298,7 +298,7 @@ class CacheGuard:
             # Replaying p_msg restores the exact forwarded bytes to guarantee 100% KV cache hit
             p_norm = self.normalize_message_for_comparison(p_msg)
             c_norm = self.normalize_message_for_comparison(c_msg)
-            if p_norm == c_norm or p_msg.role in ("system", "assistant") or len(c_msg.get_text_content()) > 0:
+            if p_norm == c_norm or p_msg.role in ("system", "developer", "assistant") or len(c_msg.get_text_content()) > 0:
                 replayed.append(copy.deepcopy(p_msg))
             else:
                 replayed.append(c_msg)

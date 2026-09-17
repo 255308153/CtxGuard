@@ -1,11 +1,14 @@
 """API route definitions for OpenAI and Anthropic proxy endpoints, Web Dashboard, and Admin APIs."""
 
 import time
+import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 import orjson
+
+logger = logging.getLogger("ctxguard.router")
 
 from ctxguard.config.schema import AppConfig
 from ctxguard.core.context import Message, NormalizedRequest
@@ -153,6 +156,8 @@ def parse_cache_stats(resp_content: bytes, protocol: str = "openai") -> tuple[in
 
     if isinstance(data, dict):
         usage = data.get("usage")
+        if not isinstance(usage, dict) and isinstance(data.get("response"), dict):
+            usage = data["response"].get("usage")
         if isinstance(usage, dict):
             p_tok = usage.get("prompt_tokens") or usage.get("input_tokens")
             if p_tok is not None:
@@ -174,11 +179,15 @@ def parse_cache_stats(resp_content: bytes, protocol: str = "openai") -> tuple[in
                 if prompt_tokens is not None:
                     prompt_tokens += val + (usage.get("cache_creation_input_tokens") or 0)
 
-            # 3. OpenAI / Gemini OpenAI-compatible: prompt_tokens_details.cached_tokens
+            # 3. OpenAI / Gemini OpenAI-compatible / Codex Responses: prompt_tokens_details or input_token_details
             if cached_tokens == 0:
-                details = usage.get("prompt_tokens_details")
+                details = (
+                    usage.get("prompt_tokens_details")
+                    or usage.get("input_token_details")
+                    or usage.get("input_tokens_details")
+                )
                 if isinstance(details, dict):
-                    val = details.get("cached_tokens") or 0
+                    val = details.get("cached_tokens") or details.get("cache_read_input_tokens") or 0
                     if val > 0:
                         cached_tokens = val
                         cache_type = "openai_cache"
@@ -888,6 +897,8 @@ def create_router(
         if provider_name == "deepseek":
             if upstream_payload.get("model") in ("deepseek-v4-flash", "deepseek-v4-flash-vision-exp"):
                 upstream_payload["model"] = "deepseek-flash"
+        elif upstream_payload.get("model") == "gpt-5.6-luna":
+            upstream_payload["model"] = "gpt-5.5"
 
         # Check if request payload was modified by compressors, graph injection, model aliasing,
         # or if historical prefix was compressed and frozen in prior turns.
@@ -1039,43 +1050,134 @@ def create_router(
         start_time = time.perf_counter()
         body_bytes = await request.body()
         raw_body: Dict[str, Any] = orjson.loads(body_bytes) if body_bytes else {}
-        # Collect mutable text references (container, key_or_index)
-        text_refs = []
-        messages = []
+        _RESPONSES_OUTPUT_ITEM_TYPES = frozenset({
+            "custom_tool_call_output",
+            "function_call_output",
+            "local_shell_call_output",
+            "apply_patch_call_output",
+        })
+
+        # Collect mutable text references (msg_index, container, key)
+        text_refs: list[tuple[int, Any, Union[str, int]]] = []
+        messages: list[Message] = []
 
         instructions = raw_body.get("instructions")
         system_str = instructions if isinstance(instructions, str) else None
 
-        def walk_input(obj: Any, role: str = "user") -> None:
-            if isinstance(obj, dict):
-                r = obj.get("role", role)
-                # Skip additional_tools containers from text mutation
-                if obj.get("type") == "additional_tools":
-                    return
-                for k, v in list(obj.items()):
-                    if k in {"text", "content", "input_text", "output_text"} and isinstance(v, str):
-                        text_refs.append((obj, k))
-                        messages.append(Message(role=r, content=v))
-                    elif k not in {"signature", "encrypted_content", "tools"}:
-                        walk_input(v, r)
-            elif isinstance(obj, list):
-                for idx, item in enumerate(obj):
-                    if isinstance(item, str):
-                        text_refs.append((obj, idx))
-                        messages.append(Message(role=role, content=item))
-                    else:
-                        walk_input(item, role)
-            elif isinstance(obj, str):
-                text_refs.append((raw_body, "input"))
-                messages.append(Message(role=role, content=obj))
+        extracted_tools: list[dict[str, Any]] = []
+        if isinstance(raw_body.get("tools"), list):
+            extracted_tools.extend([t for t in raw_body["tools"] if isinstance(t, dict)])
 
-        walk_input(raw_body.get("input", []))
+        input_data = raw_body.get("input", [])
+        if isinstance(input_data, str):
+            if input_data:
+                messages.append(Message(role="user", content=input_data))
+        elif isinstance(input_data, list):
+            for item in input_data:
+                if not isinstance(item, dict):
+                    if isinstance(item, str) and item:
+                        messages.append(Message(role="user", content=item))
+                    continue
+
+                itype = item.get("type")
+                if itype == "additional_tools":
+                    t_list = item.get("tools", [])
+                    if isinstance(t_list, list):
+                        for t in t_list:
+                            if isinstance(t, dict) and t not in extracted_tools:
+                                extracted_tools.append(t)
+                    continue
+
+                if itype in _RESPONSES_OUTPUT_ITEM_TYPES:
+                    output = item.get("output", "")
+                    call_id = item.get("call_id")
+                    msg_idx = len(messages)
+                    if isinstance(output, str):
+                        text_refs.append((msg_idx, item, "output"))
+                        messages.append(Message(role="tool", content=output, tool_call_id=call_id))
+                    elif isinstance(output, list):
+                        parts = []
+                        target_part = None
+                        for p in output:
+                            if isinstance(p, dict) and isinstance(p.get("text"), str):
+                                parts.append(p["text"])
+                                if target_part is None:
+                                    target_part = p
+                            elif isinstance(p, str):
+                                parts.append(p)
+                        if target_part is not None and len(parts) == 1:
+                            text_refs.append((msg_idx, target_part, "text"))
+                        elif parts:
+                            text_refs.append((msg_idx, item, "output"))
+                        messages.append(Message(role="tool", content="\n".join(parts), tool_call_id=call_id))
+                    else:
+                        messages.append(Message(role="tool", content=str(output), tool_call_id=call_id))
+                elif itype == "custom_tool_call":
+                    inp = item.get("input", "")
+                    inp_str = inp if isinstance(inp, str) else (orjson.dumps(inp).decode("utf-8") if isinstance(inp, dict) else str(inp))
+                    call_id = item.get("call_id")
+                    name = item.get("name", "unknown")
+                    tool_call_dict = {
+                        "id": call_id,
+                        "type": "custom",
+                        "custom": {"name": name, "input": inp_str},
+                    }
+                    messages.append(
+                        Message(
+                            role="assistant",
+                            content=inp_str,
+                            tool_calls=[tool_call_dict],
+                        )
+                    )
+                elif itype == "function_call":
+                    args = item.get("arguments", "{}")
+                    args_str = args if isinstance(args, str) else orjson.dumps(args).decode("utf-8")
+                    call_id = item.get("call_id")
+                    name = item.get("name", "unknown")
+                    tool_call_dict = {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": name, "arguments": args_str},
+                    }
+                    messages.append(
+                        Message(
+                            role="assistant",
+                            content=args_str,
+                            tool_calls=[tool_call_dict],
+                        )
+                    )
+                elif itype == "message" or "role" in item:
+                    role = item.get("role", "user")
+                    content = item.get("content", "")
+                    if isinstance(content, list):
+                        parts = []
+                        for p in content:
+                            if isinstance(p, str):
+                                parts.append(p)
+                            elif isinstance(p, dict):
+                                if isinstance(p.get("text"), str):
+                                    parts.append(p["text"])
+                                elif isinstance(p.get("content"), str):
+                                    parts.append(p["content"])
+                        content_str = "\n".join(parts)
+                    else:
+                        content_str = str(content)
+                    messages.append(Message(role=role, content=content_str))
+
+        model_name = str(raw_body.get("model", "gpt-5"))
+        if model_name == "gpt-5.6-luna":
+            raw_body["model"] = "gpt-5.5"
+            model_name = "gpt-5.5"
 
         norm_req = NormalizedRequest(
             protocol="openai",
-            model=str(raw_body.get("model", "gpt-5")),
+            model=model_name,
             messages=messages,
             system=system_str,
+            tools=extracted_tools or raw_body.get("tools"),
+            tool_choice=raw_body.get("tool_choice"),
+            temperature=raw_body.get("temperature"),
+            max_tokens=raw_body.get("max_tokens") or raw_body.get("max_output_tokens"),
             stream=bool(raw_body.get("stream", False)),
             raw_payload=raw_body,
             session_id=request.headers.get("x-session-id", "default"),
@@ -1089,16 +1191,17 @@ def create_router(
 
         req_ctx = await pipeline.process(norm_req)
 
-        # Only mutate JSON fields if compression was actually applied and lengths strictly match
-        if req_ctx.applied_compressors and len(text_refs) == len(req_ctx.request.messages):
-            for (container, key), message in zip(text_refs, req_ctx.request.messages):
-                container[key] = message.get_text_content()
-
         has_compressed_history = False
         if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
             prev_forwarded = pipeline.cache_guard._last_forwarded_messages.get(session_id)
             if prev_forwarded:
                 has_compressed_history = True
+
+        # Keep raw_body JSON containers aligned with optimized / replayed history
+        if text_refs and (req_ctx.applied_compressors or has_compressed_history):
+            for msg_idx, container, key in text_refs:
+                if msg_idx < len(req_ctx.request.messages):
+                    container[key] = req_ctx.request.messages[msg_idx].get_text_content()
 
         can_passthrough_raw = (
             not req_ctx.applied_compressors
@@ -1110,14 +1213,11 @@ def create_router(
         headers = upstream.build_headers("openai", upstream.resolve_provider(provider_name), dict(request.headers))
         
         req_path = request.url.path
-        if "/backend-api/" in req_path:
-            idx = req_path.find("/backend-api/")
-            path = req_path[idx + 1:]
-        elif "/v1/codex/" in req_path:
-            idx = req_path.find("/v1/codex/")
-            path = req_path[idx + 1:]
-        else:
-            path = "backend-api/codex/responses" if "codex" in req_path else "backend-api/responses"
+        if req_path.startswith("/p/"):
+            parts = req_path.split("/", 3)
+            if len(parts) >= 4:
+                req_path = "/" + parts[3]
+        path = req_path.lstrip("/")
         fwd_kwargs = {"raw_body": fwd_bytes}
         duration_ms = (time.perf_counter() - start_time) * 1000
         if req_ctx.original_tokens > req_ctx.optimized_tokens:
@@ -1129,8 +1229,9 @@ def create_router(
                 source="proxy_pipeline",
             )
 
+        req_id = None
         if stats_repo:
-            stats_repo.record_request(
+            req_id = stats_repo.record_request(
                 session_id=session_id,
                 protocol="openai-responses",
                 model=norm_req.model,
@@ -1142,23 +1243,6 @@ def create_router(
                 prompt_preview=prompt_preview,
             )
 
-        # 已知中转站可直接改走聊天补全接口；其他中转站在流中自动识别协议。
-        target_prov = upstream.resolve_provider(provider_name)
-        base_url = getattr(target_prov, "base_url", "")
-        is_relay = ("super-nb.me" in base_url)
-        if is_relay and norm_req.stream:
-            path = "v1/chat/completions"
-            fwd_body = {
-                "model": norm_req.model or "gpt-4o",
-                "messages": [{"role": m.role, "content": m.content} for m in norm_req.messages],
-                "stream": True,
-            }
-            if norm_req.max_tokens:
-                fwd_body["max_tokens"] = norm_req.max_tokens
-            if norm_req.temperature is not None:
-                fwd_body["temperature"] = norm_req.temperature
-            fwd_kwargs = {"raw_body": orjson.dumps(fwd_body)}
-
         if norm_req.stream:
             # Ensure headers allow text/event-stream
             headers["Accept"] = "text/event-stream"
@@ -1167,7 +1251,9 @@ def create_router(
                 upstream_resp = await upstream.send_stream_request(
                     path, headers=headers, provider_name=provider_name, **fwd_kwargs
                 )
+                logger.info(f"[Responses] Upstream returned status {upstream_resp.status_code} for path '{path}'")
             except Exception as exc:
+                logger.error(f"[Responses] Upstream connection exception on '{path}': {type(exc)}: {exc}", exc_info=True)
                 return JSONResponse(
                     {"error": {"message": f"CtxGuard upstream connection error: {str(exc)}", "code": 502}},
                     status_code=502,
@@ -1178,6 +1264,10 @@ def create_router(
                     error_bytes = await upstream_resp.aread()
                 finally:
                     await upstream_resp.aclose()
+                    stream_client = getattr(upstream_resp, "_stream_client", None)
+                    if stream_client:
+                        await stream_client.aclose()
+                logger.error(f"[Responses] Upstream error {upstream_resp.status_code} on '{path}': {error_bytes.decode('utf-8', errors='ignore')[:500]}")
                 return Response(
                     content=error_bytes,
                     status_code=upstream_resp.status_code,
@@ -1189,17 +1279,29 @@ def create_router(
                     async for chunk in upstream_resp.aiter_bytes():
                         if chunk:
                             yield chunk
+                except (httpx.TransportError, httpcore.TransportError) as exc:
+                    logger.warning(f"[Responses] Upstream stream interrupted: {exc}")
                 finally:
                     await upstream_resp.aclose()
+                    stream_client = getattr(upstream_resp, "_stream_client", None)
+                    if stream_client:
+                        await stream_client.aclose()
+
+            def on_responses_stream_complete(cached_toks: int, c_type: str, prompt_toks: Optional[int] = None):
+                if req_id and stats_repo and (cached_toks > 0 or (prompt_toks and prompt_toks > 0)):
+                    stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
+                if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+                    pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
+                session_last_activity[session_id] = time.time()
 
             media_type = "text/event-stream"
             return StreamingResponse(
                 SSEStreamHandler.passthrough_stream(
                     body_generator(),
+                    on_complete=on_responses_stream_complete,
                     protocol="openai",
-                    # Codex 客户端要求 Responses 事件。上游若已原生支持该协议会原样保留，
-                    # 若中转站返回 Chat Completions 则在此转换，不能依据特定域名判断。
-                    convert_to_responses=True,
+                    # Upstream natively supports Responses API; pass raw stream through
+                    convert_to_responses=False,
                 ),
                 media_type=media_type,
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
@@ -1207,6 +1309,13 @@ def create_router(
             )
 
         resp = await upstream.forward_request(path, headers=headers, provider_name=provider_name, **fwd_kwargs)
+        if resp.status_code < 400:
+            cached_toks, c_type, prompt_toks = parse_cache_stats(resp.content, protocol="openai")
+            if req_id and stats_repo and (cached_toks > 0 or (prompt_toks and prompt_toks > 0)):
+                stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
+            if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+                pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
+            session_last_activity[session_id] = time.time()
         return Response(
             content=resp.content,
             status_code=resp.status_code,

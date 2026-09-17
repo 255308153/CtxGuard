@@ -1,5 +1,6 @@
 """Upstream HTTP client managing connections, authentication, and streaming to LLM providers."""
 
+import asyncio
 import os
 from typing import Any, AsyncIterator, Dict, Optional
 import httpx
@@ -15,13 +16,40 @@ class UpstreamClient:
         self.timeout_seconds = timeout_seconds
         self._client: Optional[httpx.AsyncClient] = None
 
+    def create_client(self) -> httpx.AsyncClient:
+        proxy_url = (
+            os.environ.get("HTTPS_PROXY")
+            or os.environ.get("https_proxy")
+            or os.environ.get("ALL_PROXY")
+            or os.environ.get("all_proxy")
+        )
+        if not proxy_url:
+            # Auto-detect local Clash / v2ray proxy if listening
+            import socket
+            for test_port in (7897, 7890, 1080):
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        s.settimeout(0.05)
+                        if s.connect_ex(("127.0.0.1", test_port)) == 0:
+                            proxy_url = f"http://127.0.0.1:{test_port}"
+                            break
+                except Exception:
+                    pass
+
+        client_kwargs: Dict[str, Any] = {
+            "timeout": httpx.Timeout(self.timeout_seconds, connect=20.0, read=self.timeout_seconds),
+            "limits": httpx.Limits(max_keepalive_connections=50, max_connections=200, keepalive_expiry=15.0),
+            "follow_redirects": True,
+            "trust_env": True,
+        }
+        if proxy_url:
+            client_kwargs["proxy"] = proxy_url
+
+        return httpx.AsyncClient(**client_kwargs)
+
     def get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(self.timeout_seconds, connect=10.0),
-                limits=httpx.Limits(max_keepalive_connections=50, max_connections=200),
-                follow_redirects=True,
-            )
+            self._client = self.create_client()
         return self._client
 
     async def close(self) -> None:
@@ -77,7 +105,7 @@ class UpstreamClient:
         HOP_BY_HOP = {
             "host", "content-length", "connection", "keep-alive",
             "proxy-authenticate", "proxy-authorization", "te", "trailers",
-            "transfer-encoding", "upgrade"
+            "transfer-encoding", "upgrade", "accept-encoding", "content-encoding"
         }
         for k, v in client_headers.items():
             if k.lower() not in HOP_BY_HOP:
@@ -142,16 +170,23 @@ class UpstreamClient:
         raw_body: Optional[bytes] = None,
     ) -> httpx.Response:
         """Send non-streaming request to upstream. If raw_body is provided, forwards raw bytes verbatim."""
-        client = self.get_client()
         provider = self.resolve_provider(provider_name)
         full_url = self.build_full_url(provider, url_path)
         req_headers = headers or {}
 
-        if raw_body is not None:
-            response = await client.post(full_url, content=raw_body, headers=req_headers)
-        else:
-            response = await client.post(full_url, json=payload, headers=req_headers)
-        return response
+        last_exc: Optional[Exception] = None
+        for attempt in range(3):
+            client = self.get_client()
+            try:
+                if raw_body is not None:
+                    return await client.post(full_url, content=raw_body, headers=req_headers)
+                else:
+                    return await client.post(full_url, json=payload, headers=req_headers)
+            except (httpx.TransportError, httpx.PoolTimeout) as exc:
+                last_exc = exc
+                if attempt < 2:
+                    await asyncio.sleep(0.2 * (attempt + 1))
+        raise last_exc or RuntimeError("Failed to connect to upstream")
 
     async def send_stream_request(
         self,
@@ -162,14 +197,25 @@ class UpstreamClient:
         raw_body: Optional[bytes] = None,
     ) -> httpx.Response:
         """Send streaming request to upstream LLM provider and return open httpx.Response for status check."""
-        client = self.get_client()
         provider = self.resolve_provider(provider_name)
         full_url = self.build_full_url(provider, url_path)
         req_headers = headers or {}
         req_kwargs = {"content": raw_body} if raw_body is not None else {"json": payload}
-        req = client.build_request("POST", full_url, headers=req_headers, **req_kwargs)
-        response = await client.send(req, stream=True)
-        return response
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(3):
+            stream_client = self.create_client()
+            try:
+                req = stream_client.build_request("POST", full_url, headers=req_headers, **req_kwargs)
+                response = await stream_client.send(req, stream=True)
+                response._stream_client = stream_client
+                return response
+            except (httpx.TransportError, httpx.PoolTimeout) as exc:
+                last_exc = exc
+                await stream_client.aclose()
+                if attempt < 2:
+                    await asyncio.sleep(0.2 * (attempt + 1))
+        raise last_exc or RuntimeError("Failed to connect to upstream stream")
 
     async def forward_stream(
         self,
@@ -182,14 +228,14 @@ class UpstreamClient:
         """Stream request to upstream and yield raw byte chunks, ensuring errors are formatted cleanly.
         If raw_body is provided, forwards raw bytes verbatim without re-serialization.
         """
-        client = self.get_client()
         provider = self.resolve_provider(provider_name)
         full_url = self.build_full_url(provider, url_path)
         req_headers = headers or {}
+        req_kwargs = {"content": raw_body} if raw_body is not None else {"json": payload}
 
+        stream_client = self.create_client()
         try:
-            req_kwargs = {"content": raw_body} if raw_body is not None else {"json": payload}
-            async with client.stream("POST", full_url, headers=req_headers, **req_kwargs) as response:
+            async with stream_client.stream("POST", full_url, headers=req_headers, **req_kwargs) as response:
                 if response.status_code != 200:
                     body = await response.aread()
                     yield body
@@ -208,3 +254,5 @@ class UpstreamClient:
                 }
             }
             yield f"data: {orjson.dumps(error_payload).decode('utf-8')}\n\n".encode("utf-8")
+        finally:
+            await stream_client.aclose()

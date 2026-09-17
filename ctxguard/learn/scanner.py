@@ -42,9 +42,15 @@ class LogScanner:
             claude_home = Path.home() / ".claude" / "projects"
             if claude_home.exists():
                 search_dirs.append(claude_home)
+            pi_home = Path.home() / ".pi" / "agent" / "sessions"
+            if pi_home.exists():
+                search_dirs.append(pi_home)
             local_claude = Path(".claude")
             if local_claude.exists():
                 search_dirs.append(local_claude)
+            local_pi = Path(".pi")
+            if local_pi.exists():
+                search_dirs.append(local_pi)
 
         for s_dir in search_dirs:
             for jsonl_file in s_dir.rglob("*.jsonl"):
@@ -73,7 +79,96 @@ class LogScanner:
                 except Exception:
                     continue
 
-                ts = record.get("timestamp") or (base_time + idx * 0.1)
+                # Support Pi Agent JSONL format
+                if record.get("type") == "message" and isinstance(record.get("message"), dict):
+                    msg_obj = record["message"]
+                    pi_role = msg_obj.get("role", "")
+                    ts_val = msg_obj.get("timestamp") or (base_time + idx * 0.1)
+                    if isinstance(ts_val, (int, float)) and ts_val > 1e11:
+                        ts_val = ts_val / 1000.0
+
+                    if pi_role == "toolResult":
+                        t_name = msg_obj.get("toolName") or "tool"
+                        raw_c = msg_obj.get("content", "")
+                        if isinstance(raw_c, list):
+                            txt = " ".join(
+                                b.get("text", "") for b in raw_c if isinstance(b, dict) and b.get("type") == "text"
+                            )
+                        else:
+                            txt = str(raw_c)
+
+                        is_err = bool(msg_obj.get("isError", False))
+                        if not is_err:
+                            err_indicators = [
+                                "FileNotFoundError", "NoSuchFile", "ModuleNotFoundError",
+                                "command not found", "Permission denied", "Error:",
+                                "exit code 1", "Traceback", "failed with", "does not exist",
+                                "tool execution error", "invalid arguments",
+                            ]
+                            is_err = any(ind.lower() in txt.lower() for ind in err_indicators)
+
+                        events.append(LogEvent(
+                            timestamp=float(ts_val),
+                            session_id=session_id,
+                            role="tool",
+                            tool_name=t_name,
+                            output=txt[:2000],
+                            is_error=is_err,
+                        ))
+                        continue
+                    elif pi_role == "user":
+                        u_content = msg_obj.get("content", "")
+                        if isinstance(u_content, list):
+                            u_txt = " ".join(
+                                b.get("text", "") for b in u_content if isinstance(b, dict) and b.get("type") == "text"
+                            )
+                        else:
+                            u_txt = str(u_content)
+                        u_inter = u_txt.strip().lower() in cls.USER_INTERRUPT_KEYWORDS
+                        events.append(LogEvent(
+                            timestamp=float(ts_val),
+                            session_id=session_id,
+                            role="user",
+                            tool_name="",
+                            output=u_txt[:2000],
+                            is_error=False,
+                            user_interrupt=u_inter,
+                        ))
+                        continue
+                    elif pi_role == "assistant":
+                        a_content = msg_obj.get("content", [])
+                        if isinstance(a_content, list):
+                            for b in a_content:
+                                if isinstance(b, dict) and b.get("type") in ("toolCall", "tool_use"):
+                                    t_name = b.get("name") or b.get("toolName")
+                                    args = b.get("args") or b.get("input") or {}
+                                    cmd_str = ""
+                                    if isinstance(args, dict):
+                                        cmd_str = args.get("command") or args.get("cmd") or args.get("path") or ""
+                                    elif isinstance(args, str):
+                                        cmd_str = args
+                                    events.append(LogEvent(
+                                        timestamp=float(ts_val),
+                                        session_id=session_id,
+                                        role="assistant",
+                                        tool_name=t_name or "tool_call",
+                                        tool_input=args if isinstance(args, dict) else {"cmd": str(cmd_str)},
+                                        output="",
+                                        is_error=False,
+                                    ))
+                        continue
+
+                raw_ts = record.get("timestamp")
+                if isinstance(raw_ts, (int, float)):
+                    ts = float(raw_ts / 1000.0 if raw_ts > 1e11 else raw_ts)
+                elif isinstance(raw_ts, str):
+                    try:
+                        from datetime import datetime
+                        ts = datetime.fromisoformat(raw_ts.replace("Z", "+00:00")).timestamp()
+                    except Exception:
+                        ts = base_time + idx * 0.1
+                else:
+                    ts = base_time + idx * 0.1
                 role = record.get("role") or record.get("type", "unknown")
 
                 # 1. User message / rejection check
