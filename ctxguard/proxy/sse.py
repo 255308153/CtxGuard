@@ -1,6 +1,7 @@
 """Server-Sent Events (SSE) stream parser and transparent pass-through generator."""
 
 from typing import AsyncIterator, Callable, Optional
+import codecs
 import orjson
 import uuid
 
@@ -146,6 +147,8 @@ class SSEStreamHandler:
             "full_text": "",
         }
         pending = b""
+        metrics_pending = ""
+        metrics_decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 
         try:
             async for chunk in byte_stream:
@@ -165,9 +168,31 @@ class SSEStreamHandler:
                 else:
                     yield chunk
 
-                # Calculate metrics in background
-                text = chunk.decode("utf-8", errors="ignore")
-                for line in text.split("\n"):
+                # Calculate metrics in background with line buffering for split TCP chunks
+                text = metrics_decoder.decode(chunk, final=False)
+                if text:
+                    metrics_pending += text
+                    lines = metrics_pending.split("\n")
+                    metrics_pending = lines.pop()  # Keep incomplete trailing line in buffer
+                    for line in lines:
+                        tokens, finish_reason, cached_tokens, cache_type, prompt_tokens = cls._parse_sse_line(line)
+                        if tokens > 0:
+                            total_tokens += tokens
+                        if finish_reason:
+                            final_finish_reason = finish_reason
+                        if cached_tokens > 0:
+                            cached_tokens_total = cached_tokens
+                        if cache_type != "none":
+                            cache_type_total = cache_type
+                        if prompt_tokens is not None:
+                            prompt_tokens_total = prompt_tokens
+
+            # Flush any remaining decoder output and trailing line
+            final_text = metrics_decoder.decode(b"", final=True)
+            if final_text:
+                metrics_pending += final_text
+            if metrics_pending:
+                for line in metrics_pending.split("\n"):
                     tokens, finish_reason, cached_tokens, cache_type, prompt_tokens = cls._parse_sse_line(line)
                     if tokens > 0:
                         total_tokens += tokens

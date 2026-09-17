@@ -29,6 +29,7 @@ def create_parser() -> argparse.ArgumentParser:
     start_parser.add_argument("--host", help="Override server listening host")
     start_parser.add_argument("--provider", help="Override default upstream provider (anthropic | openai | deepseek)")
     start_parser.add_argument("--log-level", help="Override log level (DEBUG | INFO | WARNING | ERROR)")
+    start_parser.add_argument("-w", "--workers", type=int, default=1, help="Number of worker processes for multi-core parallelism")
 
     # 'config' command
     config_parser = subparsers.add_parser("config", help="Manage configuration files")

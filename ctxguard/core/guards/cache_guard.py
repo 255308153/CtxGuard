@@ -5,6 +5,7 @@ Follows the First Principle of Prompt Caching:
 """
 
 import copy
+import orjson
 from typing import Any, Dict, List, Optional, Set, Tuple
 from ctxguard.core.context import NormalizedRequest, Message
 from ctxguard.config.schema import CacheGuardConfig
@@ -38,14 +39,78 @@ class CacheGuard:
     5. Cache Miss Attribution & TTL Expiry Detection
     """
 
-    def __init__(self, config: CacheGuardConfig):
+    def __init__(self, config: CacheGuardConfig, db_manager: Optional[Any] = None):
         self.config = config
-        # Session state: stores last forwarded messages per session
+        self.db = db_manager
+        # In-memory hot L1 cache: stores last forwarded messages per session
         # session_id -> list of raw Message dicts/objects
         self._last_forwarded_messages: Dict[str, List[Message]] = {}
         self._last_cached_tokens: Dict[str, int] = {}
         self._frozen_system_prompts: Dict[str, Optional[str]] = {}
         self._frozen_system_messages: Dict[str, List[Message]] = {}
+
+    def _sync_session_from_db(self, session_id: str, force: bool = False) -> None:
+        """Load session prefix and cache state from persistent SQLite into memory."""
+        if not self.db:
+            return
+        try:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT frozen_system_prompt, frozen_system_messages, last_forwarded_messages, last_cached_tokens FROM session_cache WHERE session_id = ? LIMIT 1",
+                    (session_id,),
+                ).fetchone()
+                if row:
+                    if row["frozen_system_prompt"]:
+                        self._frozen_system_prompts[session_id] = row["frozen_system_prompt"]
+                    if row["frozen_system_messages"]:
+                        raw_sys = orjson.loads(row["frozen_system_messages"])
+                        self._frozen_system_messages[session_id] = [Message.from_dict(m) for m in raw_sys]
+                    if row["last_forwarded_messages"]:
+                        raw_fwd = orjson.loads(row["last_forwarded_messages"])
+                        db_msgs = [Message.from_dict(m) for m in raw_fwd]
+                        curr_msgs = self._last_forwarded_messages.get(session_id)
+                        if force or curr_msgs is None or len(db_msgs) >= len(curr_msgs):
+                            self._last_forwarded_messages[session_id] = db_msgs
+                    if row["last_cached_tokens"] is not None:
+                        self._last_cached_tokens[session_id] = int(row["last_cached_tokens"])
+        except Exception:
+            pass
+
+    def has_compressed_history(self, session_id: str) -> bool:
+        """Check whether the session has established historical turns, syncing from DB if needed."""
+        self._sync_session_from_db(session_id)
+        return bool(self._last_forwarded_messages.get(session_id))
+
+    def _sync_session_to_db(self, session_id: str) -> None:
+        """Persist session prefix and cache state to SQLite to synchronize across worker processes."""
+        if not self.db:
+            return
+        try:
+            sys_prompt = self._frozen_system_prompts.get(session_id)
+            sys_msgs = self._frozen_system_messages.get(session_id)
+            fwd_msgs = self._last_forwarded_messages.get(session_id)
+            cached_toks = self._last_cached_tokens.get(session_id, 0)
+
+            raw_sys_msgs = orjson.dumps([m.to_dict() for m in sys_msgs]).decode("utf-8") if sys_msgs else None
+            raw_fwd_msgs = orjson.dumps([m.to_dict() for m in fwd_msgs]).decode("utf-8") if fwd_msgs else None
+
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO session_cache (session_id, frozen_system_prompt, frozen_system_messages, last_forwarded_messages, last_cached_tokens, updated_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(session_id) DO UPDATE SET
+                        frozen_system_prompt = coalesce(excluded.frozen_system_prompt, session_cache.frozen_system_prompt),
+                        frozen_system_messages = coalesce(excluded.frozen_system_messages, session_cache.frozen_system_messages),
+                        last_forwarded_messages = coalesce(excluded.last_forwarded_messages, session_cache.last_forwarded_messages),
+                        last_cached_tokens = excluded.last_cached_tokens,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (session_id, sys_prompt, raw_sys_msgs, raw_fwd_msgs, cached_toks),
+                )
+                conn.commit()
+        except Exception:
+            pass
 
     def should_cold_recompact(self, idle_seconds: float) -> bool:
         """Determine whether the upstream cache has naturally expired and cold recompact should fire."""
@@ -167,6 +232,7 @@ class CacheGuard:
 
     def is_prefix_stable(self, session_id: str, current_messages: List[Message]) -> bool:
         """Compare current messages with last forwarded messages using normalized comparison keys."""
+        self._sync_session_from_db(session_id)
         prev = self._last_forwarded_messages.get(session_id)
         if not prev:
             return True
@@ -200,11 +266,20 @@ class CacheGuard:
         if not messages:
             return [], [], False
 
+        self._sync_session_from_db(session_id)
+
         # 1. Cold Recompact Check (fires when cache TTL expired)
         if self.should_cold_recompact(idle_seconds):
             # Cache is dead anyway; lift freeze completely for global re-baselining
             self._frozen_system_prompts.pop(session_id, None)
             self._frozen_system_messages.pop(session_id, None)
+            if self.db:
+                try:
+                    with self.db.get_connection() as conn:
+                        conn.execute("DELETE FROM session_cache WHERE session_id = ?", (session_id,))
+                        conn.commit()
+                except Exception:
+                    pass
             return [], messages, True
 
         if len(messages) == 1:
@@ -215,6 +290,7 @@ class CacheGuard:
             # Snapshot on first turn of the session
             if session_id not in self._frozen_system_prompts and request.system is not None:
                 self._frozen_system_prompts[session_id] = request.system
+                self._sync_session_to_db(session_id)
             elif session_id in self._frozen_system_prompts and request.system is not None:
                 # Replay frozen system prompt to guarantee 100% prefix byte stability
                 request.system = self._frozen_system_prompts[session_id]
@@ -222,6 +298,7 @@ class CacheGuard:
             leading_sys = [m for m in messages if m.role in ("system", "developer")]
             if session_id not in self._frozen_system_messages and leading_sys:
                 self._frozen_system_messages[session_id] = [copy.deepcopy(m) for m in leading_sys]
+                self._sync_session_to_db(session_id)
             elif session_id in self._frozen_system_messages:
                 frozen_sys = self._frozen_system_messages[session_id]
                 for s_i, f_msg in enumerate(frozen_sys):
@@ -316,6 +393,7 @@ class CacheGuard:
         self._last_forwarded_messages[session_id] = copy.deepcopy(forwarded_messages)
         if cached_tokens > 0:
             self._last_cached_tokens[session_id] = cached_tokens
+        self._sync_session_to_db(session_id)
 
     def classify_cache_miss(
         self,

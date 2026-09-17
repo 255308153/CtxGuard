@@ -26,6 +26,8 @@ class BaseCompressor(ABC):
     def process(self, context: RequestContext, target_messages: list[Message]) -> None:
         """Process target messages in place."""
         for msg in target_messages:
+            if msg.role in ("system", "developer"):
+                continue  # Never mutate system/developer messages (Cache Invariant 2)
             text = msg.get_text_content()
             if text:
                 optimized = self.compress_text(text)

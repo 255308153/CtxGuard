@@ -33,11 +33,21 @@ def execute_start(args: argparse.Namespace) -> None:
     from ctxguard import __version__
     Console.banner(version=__version__, host=config.server.host, port=config.server.port)
 
-    app = create_app(config)
-
-    uvicorn.run(
-        app,
-        host=config.server.host,
-        port=config.server.port,
-        log_level=config.server.log_level.lower(),
-    )
+    workers = getattr(args, "workers", 1) or 1
+    if workers > 1:
+        uvicorn.run(
+            "ctxguard.proxy.server:create_app_factory",
+            factory=True,
+            host=config.server.host,
+            port=config.server.port,
+            workers=workers,
+            log_level=config.server.log_level.lower(),
+        )
+    else:
+        app = create_app(config)
+        uvicorn.run(
+            app,
+            host=config.server.host,
+            port=config.server.port,
+            log_level=config.server.log_level.lower(),
+        )

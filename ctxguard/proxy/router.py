@@ -907,9 +907,7 @@ def create_router(
         # Forward raw client bytes ONLY when the entire payload is genuinely identical to client input (no compression anywhere).
         has_compressed_history = False
         if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-            prev_forwarded = pipeline.cache_guard._last_forwarded_messages.get(session_id)
-            if prev_forwarded:
-                has_compressed_history = True
+            has_compressed_history = pipeline.cache_guard.has_compressed_history(session_id)
 
         can_passthrough_raw = (
             not req_ctx.applied_compressors
@@ -1194,9 +1192,7 @@ def create_router(
 
         has_compressed_history = False
         if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-            prev_forwarded = pipeline.cache_guard._last_forwarded_messages.get(session_id)
-            if prev_forwarded:
-                has_compressed_history = True
+            has_compressed_history = pipeline.cache_guard.has_compressed_history(session_id)
 
         # Keep raw_body JSON containers aligned with optimized / replayed history
         if text_refs and (req_ctx.applied_compressors or has_compressed_history):
@@ -1468,9 +1464,7 @@ def create_router(
 
         has_compressed_history = False
         if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-            prev_forwarded = pipeline.cache_guard._last_forwarded_messages.get(session_id)
-            if prev_forwarded:
-                has_compressed_history = True
+            has_compressed_history = pipeline.cache_guard.has_compressed_history(session_id)
 
         can_passthrough_raw = (
             not req_ctx.applied_compressors

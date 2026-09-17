@@ -59,6 +59,10 @@ class DedupCompressor(BaseCompressor):
             sha = compute_sha256(text)
             short_sha = compute_short_fingerprint(text, length=12)
 
+            # Skip redundant re-indexing and disk writes if already indexed in this session
+            if sha in fingerprint_store:
+                continue
+
             fingerprint_store[sha] = text
             fingerprint_store[short_sha] = text
             if self.fingerprint_repo:

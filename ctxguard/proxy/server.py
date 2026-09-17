@@ -27,7 +27,7 @@ def create_app(config: AppConfig) -> FastAPI:
     fingerprint_repo = FingerprintRepository(db_manager)
     graph_store = SQLiteGraphStore(db_manager)
 
-    pipeline = CompressionPipeline(config, fingerprint_repo=fingerprint_repo)
+    pipeline = CompressionPipeline(config, fingerprint_repo=fingerprint_repo, db_manager=db_manager)
     upstream = UpstreamClient(config.upstream, timeout_seconds=config.server.timeout_seconds)
 
     @asynccontextmanager
@@ -94,3 +94,10 @@ def create_app(config: AppConfig) -> FastAPI:
     app.state.graph_store = graph_store
 
     return app
+
+
+def create_app_factory() -> FastAPI:
+    """Factory function for multi-worker uvicorn processes."""
+    from ctxguard.config.loader import ConfigLoader
+    config = ConfigLoader.load_config()
+    return create_app(config)

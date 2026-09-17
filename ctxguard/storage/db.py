@@ -63,6 +63,16 @@ class DatabaseManager:
                 hit_count INTEGER DEFAULT 0
             );
             """)
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS session_cache (
+                session_id TEXT PRIMARY KEY,
+                frozen_system_prompt TEXT,
+                frozen_system_messages TEXT,
+                last_forwarded_messages TEXT,
+                last_cached_tokens INTEGER DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            """)
 
             # 2. Migrations for existing databases
             try:
@@ -95,4 +105,6 @@ class DatabaseManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_project ON requests(project_name);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_timestamp ON requests(timestamp);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_fingerprints_session ON fingerprints(session_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_fingerprints_lru ON fingerprints(last_accessed_at, hit_count);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_session_cache_updated ON session_cache(updated_at);")
             conn.commit()

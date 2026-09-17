@@ -1,7 +1,6 @@
-"""Orchestration pipeline executing compression operators, guards, and hooks."""
-
+import asyncio
 import copy
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from ctxguard.config.schema import AppConfig
 from ctxguard.core.context import NormalizedRequest, RequestContext
 from ctxguard.core.compressors.base import BaseCompressor
@@ -13,7 +12,12 @@ HookFn = Callable[[RequestContext], RequestContext]
 class CompressionPipeline:
     """Orchestrates request compression across guards, adaptive scheduler, compressors, and hooks."""
 
-    def __init__(self, config: AppConfig, fingerprint_repo: Optional[FingerprintRepository] = None):
+    def __init__(
+        self,
+        config: AppConfig,
+        fingerprint_repo: Optional[FingerprintRepository] = None,
+        db_manager: Optional[Any] = None,
+    ):
         from ctxguard.core.compressors.ansi_cleaner import ANSICleaner
         from ctxguard.core.compressors.progress_merger import ProgressMerger
         from ctxguard.core.compressors.stacktrace import StacktraceFolder
@@ -31,12 +35,17 @@ class CompressionPipeline:
         from ctxguard.core.guards.tools_normalizer import ToolsNormalizer
         from ctxguard.core.adaptive_scheduler import AdaptiveScheduler
         from ctxguard.core.virtual_tools.injector import VirtualToolInjector
+        from ctxguard.core.context_tracker import ContextTracker
         from ctxguard.plugins.onnx.scorer import SemanticPruner
         from ctxguard.utils.token_counter import estimate_tokens_from_payload, estimate_tokens_from_text
 
         self.config = config
         self.fingerprint_repo = fingerprint_repo
-        self.cache_guard = CacheGuard(config.cache_guard)
+        self.db_manager = db_manager
+        self.context_tracker = ContextTracker()
+        if self.fingerprint_repo is not None and getattr(self.fingerprint_repo, "context_tracker", None) is None:
+            self.fingerprint_repo.context_tracker = self.context_tracker
+        self.cache_guard = CacheGuard(config.cache_guard, db_manager=db_manager)
         self.thinking_manager = ThinkingManager(getattr(config, "thinking_manager", None) or getattr(config, "thinking_manager", None))
         shaper_cfg = getattr(config, "output_shaper", None)
         shaper_level = getattr(shaper_cfg, "level", 2) if shaper_cfg else 2
@@ -104,8 +113,38 @@ class CompressionPipeline:
             return fn
         return decorator
 
-    async def process(self, request: NormalizedRequest) -> RequestContext:
-        """Execute full optimization pipeline on the normalized request."""
+    def apply_proactive_expansion(self, request: NormalizedRequest) -> None:
+        """Analyze query relevance against compressed contexts and proactively expand full content."""
+        if not self.context_tracker or not self.fingerprint_repo or not request.messages:
+            return
+
+        session_id = request.session_id or "default"
+        # Extract latest user message or error text
+        user_messages = [m for m in request.messages if m.role == "user"]
+        latest_user_text = user_messages[-1].get_text_content() if user_messages else ""
+        if not latest_user_text:
+            return
+
+        recs = self.context_tracker.analyze_query(latest_user_text, session_id=session_id)
+        if not recs:
+            return
+
+        expanded_items = []
+        for r in recs:
+            full_text = self.fingerprint_repo.get_content(r.hash_key)
+            if full_text:
+                expanded_items.append({"hash": r.hash_key, "content": full_text, "reason": r.reason})
+
+        if expanded_items:
+            expansion_block = self.context_tracker.format_proactive_expansion(expanded_items)
+            target_msg = user_messages[-1]
+            if isinstance(target_msg.content, str):
+                target_msg.content += f"\n\n{expansion_block}"
+            elif isinstance(target_msg.content, list):
+                target_msg.content.append({"type": "text", "text": f"\n\n{expansion_block}"})
+
+    def process_sync(self, request: NormalizedRequest) -> RequestContext:
+        """Execute full optimization pipeline on the normalized request synchronously."""
         # 1. Estimate initial tokens
         if request.raw_payload and "messages" in request.raw_payload:
             raw_token_count = estimate_tokens_from_payload(request.raw_payload)
@@ -167,6 +206,9 @@ class CompressionPipeline:
                 if reclaimed > 0 and "thinking_manager" not in context.applied_compressors:
                     context.applied_compressors.append("thinking_manager")
 
+        # 4.5 Apply Proactive Expansion before live zone compression
+        self.apply_proactive_expansion(request)
+
         # Index historical content into dedup fingerprint store without modifying frozen prefix
         self.dedup_compressor.index_prefix(context, frozen_prefix)
 
@@ -205,3 +247,7 @@ class CompressionPipeline:
             context = hook(context)
 
         return context
+
+    async def process(self, request: NormalizedRequest) -> RequestContext:
+        """Execute full optimization pipeline offloaded to worker thread pool to prevent blocking event loop."""
+        return await asyncio.to_thread(self.process_sync, request)

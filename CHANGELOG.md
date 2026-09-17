@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.3] - 2026-09-18
+
+### Added
+- **多进程 Worker 并发支持 (Multi-Worker Execution)**:
+  - `ctxguard start` 新增 `-w / --workers` CLI 命令行参数，支持配置 Uvicorn 多进程 Worker 并行（例如 `ctxguard start -w 4`），突破 Python GIL 限制，充分利用多核 CPU 算力。
+  - 实现 `create_app_factory()` 应用工厂，确保多 Worker 模式下 FastAPI 实例、路由与中间件安全独立初始化。
+- **纯内存热 LRU 缓存与零磁盘 I/O (In-Memory Hot Fingerprint Store)**:
+  - 参照 Headroom 内存优先架构，在 `FingerprintRepository` 中引入容量为 10,000 条的纯内存 `OrderedDict`。
+  - 消息指纹读取与前缀命中 100% 在内存中完成纳秒级检索，彻底隔离高频读请求对底层磁盘的访问。
+- **SQLite 复合索引加速与批量惰性淘汰**:
+  - 新增复合索引：`CREATE INDEX IF NOT EXISTS idx_fingerprints_lru ON fingerprints(last_accessed_at, hit_count);`，淘汰查询由全表排序变为索引范围扫描。
+  - 将原本“每条消息淘汰一次”的高频磁盘全表扫描重构为“每 250 次写入批量惰性清理”，长会话磁盘事务提交次数削减 99% 以上。
+
+- **多进程 Worker 分布式前缀状态共享与缓存击穿防护 (Distributed Session Cache Guard)**:
+  - 针对多 Worker 并行模式下跨进程内存隔离导致的“间歇性 0 缓存击穿”致命 Bug，在 SQLite WAL 库中新增 `session_cache` 表与 `idx_session_cache_updated` 复合索引。
+  - 实现 **L1 RAM Hot + L2 SQLite WAL** 双级热同步机制：各 Worker 在决策点前增量检测拉取最新前缀，转发后原子持久化广播，使历史前缀与缓存指标跨进程即时可见。
+  - 路由层全面引入 `pipeline.cache_guard.has_compressed_history(session_id)` 跨进程历史感知，彻底杜绝轮询路由下客户端原始报文（raw `body_bytes`）直通上游引发的 KV Cache 击穿归零。
+- **系统提示词不可变性与通用清洗算子安全守卫**:
+  - `BaseCompressor.process` 显式跳过 `system` 与 `developer` 角色消息，严格遵守 Cache Invariant 2，杜绝前缀字节偏移。
+- **官方文档中心精简与架构沉淀**:
+  - 清理多余冲突目录（`docs/17-上下文模块设计/`、`面试问答/`、`docs/DEVELOPER_GUIDE.md`），规范化专栏导航与 `04b-输出Token压缩与塑造.md`。
+  - 新增踩坑 13（多 Worker 内存隔离与缓存击穿）、踩坑 14（通用算子角色守卫）以及面试 Q10、Q11 问答。
+
+### Optimized
+- **CPU 密集流水线异步多线程卸载 (Async Pipeline Offloading)**:
+  - 将 `Pipeline.process` 重构为异步方法，通过 `asyncio.to_thread` 将正则分词、代码 AST 语法树解析与 SHA-256 哈希计算卸载到底层 Worker 线程池。
+  - 彻底释放主 `asyncio` 事件循环，彻底解决长会话大请求（如 40 万 Token 任务）计算时阻塞后方并发 Agent 请求的排队延迟问题。
+- **历史前缀重复写盘消除 (Zero Redundant SQLite Ingestion)**:
+  - 在 `DedupCompressor.index_prefix` 中增加 `if sha in fingerprint_store: continue`，已缓存的会话前缀指纹 100% 跳过重复持久化，彻底消除 SSD 异常写磨损。
+
+---
+
 ## [0.2.2] - 2026-09-17
 
 ### Added

@@ -24,6 +24,31 @@ class Message:
             return True
         return False
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert message to dictionary representation."""
+        d: Dict[str, Any] = {"role": self.role, "content": self.content}
+        if self.name is not None:
+            d["name"] = self.name
+        if self.tool_call_id is not None:
+            d["tool_call_id"] = self.tool_call_id
+        if self.tool_calls is not None:
+            d["tool_calls"] = self.tool_calls
+        if self.metadata:
+            d["metadata"] = self.metadata
+        return d
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "Message":
+        """Reconstruct message from dictionary representation."""
+        return cls(
+            role=d.get("role", "user"),
+            content=d.get("content", ""),
+            name=d.get("name"),
+            tool_call_id=d.get("tool_call_id"),
+            tool_calls=d.get("tool_calls"),
+            metadata=d.get("metadata", {}),
+        )
+
     def get_text_content(self) -> str:
         """Extract plain text representation from content, strictly excluding thinking blocks and signatures."""
         if isinstance(self.content, str):
