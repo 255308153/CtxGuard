@@ -1142,7 +1142,7 @@ def create_router(
                 prompt_preview=prompt_preview,
             )
 
-        # Check if upstream is a third-party relay (super-nb / custom relay that only speaks ChatCompletions)
+        # 已知中转站可直接改走聊天补全接口；其他中转站在流中自动识别协议。
         target_prov = upstream.resolve_provider(provider_name)
         base_url = getattr(target_prov, "base_url", "")
         is_relay = ("super-nb.me" in base_url)
@@ -1197,7 +1197,9 @@ def create_router(
                 SSEStreamHandler.passthrough_stream(
                     body_generator(),
                     protocol="openai",
-                    convert_to_responses=is_relay,
+                    # Codex 客户端要求 Responses 事件。上游若已原生支持该协议会原样保留，
+                    # 若中转站返回 Chat Completions 则在此转换，不能依据特定域名判断。
+                    convert_to_responses=True,
                 ),
                 media_type=media_type,
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
