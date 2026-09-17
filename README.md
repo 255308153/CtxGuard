@@ -17,7 +17,7 @@
 
 ## 项目简介
 
-在现代 AI Agent（如 Claude Code、Cursor、Pi Agent、Aider）的复杂编码与长链路自动化任务中，随着工具调用的频繁执行，请求上下文呈指数级膨胀：大段未修改的代码差异、冗长的构建日志、重复的状态探测输出以及历史思考链迅速消耗宝贵的上下文窗口，产生高昂的 Token 费用；与此同时，客户端工具定义的无序序列化与动态提示词拼接极易引发服务商前缀缓存（Prompt Cache）频繁失效。
+在现代 AI Agent（如 Claude Code、Cursor、Pi Agent、Codex）的复杂编码与长链路自动化任务中，随着工具调用的频繁执行，请求上下文呈指数级膨胀：大段未修改的代码差异、冗长的构建日志、重复的状态探测输出以及历史思考链迅速消耗宝贵的上下文窗口，产生高昂的 Token 费用；与此同时，客户端工具定义的无序序列化与动态提示词拼接极易引发服务商前缀缓存（Prompt Cache）频繁失效。
 
 **CtxGuard** 是一套部署在客户端与大模型服务商（OpenAI、Anthropic、DeepSeek 等）之间的透明反向代理网关。它在协议中转层对出向请求实施轻量级结构化优化、语法树骨架提取与字节级防抖，在完全不损耗模型推理能力与代码逻辑的前提下，显著降低通信负载与计算开销，并为多轮会话提供自动进化的项目级经验沉淀与知识图谱记忆能力。
 
@@ -120,7 +120,7 @@ ctxguard start --port 8787
 # 自动在后台启动网关、自动感知原有中转地址并直接进入 Agent 终端：
 ctxguard wrap claude        # 一键启动 Claude Code
 ctxguard wrap pi            # 一键启动 Pi Agent
-ctxguard wrap aider         # 一键启动 Aider
+ctxguard wrap codex         # 一键启动 Codex
 ```
 > **Wrap 运行原理与底层工作流**：
 > 1. **网关自愈探测**：自动检测 `8787` 端口是否存活，若未启动则毫秒级在后台自动静默拉起 Proxy 网关。
@@ -220,7 +220,7 @@ adaptive_pipeline:
 ## CLI 命令速查
 
 ```bash
-ctxguard wrap <agent>     # 自动感知中转配置并直接一键拉起目标 Agent (claude/pi/aider)
+ctxguard wrap <agent>     # 自动感知中转配置并直接一键拉起目标 Agent (claude/pi/codex)
 ctxguard env --patch      # 自动扫描并改写本地客户端配置指向代理网关
 ctxguard stats            # 查看网关当前的吞吐量、压缩效率与近期待处理请求
 ctxguard savings          # 查看长周期的 Token 与成本节约明细
