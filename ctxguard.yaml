@@ -79,9 +79,9 @@ structural_compression:
     max_delta_items: 20
 
 thinking_manager:
-  enabled: true
-  strip_deepseek_reasoning: true
-  strip_gemini_thought: true
+  enabled: false
+  strip_deepseek_reasoning: false
+  strip_gemini_thought: false
   anthropic_max_thinking_tokens: 16384
 
 adaptive_pipeline:

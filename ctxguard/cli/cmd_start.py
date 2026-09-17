@@ -30,7 +30,8 @@ def execute_start(args: argparse.Namespace) -> None:
         Console.error(f"Configuration error: {e}")
         sys.exit(1)
 
-    Console.banner(version="0.1.0", host=config.server.host, port=config.server.port)
+    from ctxguard import __version__
+    Console.banner(version=__version__, host=config.server.host, port=config.server.port)
 
     app = create_app(config)
 

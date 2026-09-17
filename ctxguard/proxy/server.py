@@ -39,7 +39,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
     app = FastAPI(
         title="CtxGuard Proxy Gateway",
-        version="0.1.0",
+        version="0.2.1",
         description="Ultra-lightweight LLM Context Optimization Gateway",
         lifespan=lifespan,
     )

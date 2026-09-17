@@ -136,16 +136,6 @@ class CompressionPipeline:
         for hook in self._hooks["pre_compress"]:
             context = hook(context)
 
-        # 3.1 Manage thinking/reasoning tokens across multi-turn sessions
-        if self.thinking_manager:
-            reclaimed = self.thinking_manager.manage_thinking_tokens(
-                request,
-                provider=provider,
-                was_cold=bool(idle_seconds > self.cache_guard.config.cache_ttl_seconds)
-            )
-            if reclaimed > 0 and "thinking_manager" not in context.applied_compressors:
-                context.applied_compressors.append("thinking_manager")
-
         # 4. Partition messages via CacheGuard with dynamic token bound & cold recompact
         frozen_prefix, compressible_suffix, was_cold = self.cache_guard.partition_messages(
             request, session_id=session_id, idle_seconds=idle_seconds
@@ -154,27 +144,36 @@ class CompressionPipeline:
         if was_cold and "cold_recompact" not in context.applied_compressors:
             context.applied_compressors.append("cold_recompact")
 
+        # 4.1 Manage thinking/reasoning tokens across multi-turn sessions safely:
+        # - On cold recompact: clean full history to form the minimal baseline
+        # - On hot turn: clean ONLY compressible_suffix to preserve frozen_prefix 100% byte stability
+        if self.thinking_manager:
+            if was_cold:
+                reclaimed = self.thinking_manager.manage_thinking_tokens(
+                    request,
+                    provider=provider,
+                    was_cold=True,
+                )
+                if reclaimed > 0 and "thinking_manager" not in context.applied_compressors:
+                    context.applied_compressors.append("thinking_manager")
+            elif compressible_suffix:
+                reclaimed = self.thinking_manager.manage_thinking_tokens(
+                    request,
+                    provider=provider,
+                    was_cold=False,
+                    messages=compressible_suffix,
+                    is_suffix_only=True,
+                )
+                if reclaimed > 0 and "thinking_manager" not in context.applied_compressors:
+                    context.applied_compressors.append("thinking_manager")
+
         # Index historical content into dedup fingerprint store without modifying frozen prefix
         self.dedup_compressor.index_prefix(context, frozen_prefix)
 
-        # 5. Apply compressors to compressible suffix
-        # Pre-calculate token count of suffix before compression for economic arbitration
-        pre_tokens = sum(estimate_tokens_from_text(m.get_text_content()) for m in compressible_suffix)
-        orig_suffix_copies = [copy.deepcopy(m) for m in compressible_suffix]
-
+        # 5. Apply compressors deterministically to live-zone compressible suffix (Append-Only Live Zone)
         for compressor in self.compressors:
             if compressor.is_applicable(context):
                 compressor.process(context, compressible_suffix)
-
-        # Economic check: If session has existing upstream cache and compression savings do not beat provider read discount,
-        # revert compression to preserve upstream cache read discount (First Principle: Cache > Compression).
-        # For new sessions or cold turns without prior cache, compression savings are 100% net-positive.
-        if not was_cold and pre_tokens > 0 and self.cache_guard._last_cached_tokens.get(session_id, 0) > 0:
-            post_tokens = sum(estimate_tokens_from_text(m.get_text_content()) for m in compressible_suffix)
-            # If compression attempted on an existing prefix portion and failed economic test
-            if post_tokens < pre_tokens and not self.cache_guard.should_break_cache_for_compression(pre_tokens, post_tokens, provider=provider):
-                # Revert suffix to prevent breaking cache for marginal token savings
-                compressible_suffix = orig_suffix_copies
 
         # 6. Reassemble messages and apply Anthropic prompt cache controls
         request.messages = frozen_prefix + compressible_suffix

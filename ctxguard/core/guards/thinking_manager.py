@@ -23,13 +23,20 @@ class ThinkingManager:
         self,
         request: NormalizedRequest,
         provider: str = "default",
-        was_cold: bool = False
+        was_cold: bool = False,
+        messages: Optional[List[Message]] = None,
+        is_suffix_only: bool = False,
     ) -> int:
-        """Process and manage thinking blocks across historical conversation messages.
+        """Process and manage thinking blocks across conversation messages.
+
+        When messages is provided, operates on that specific list (e.g. compressible_suffix).
+        When is_suffix_only is True, processes all items in the target slice;
+        otherwise, processes target_slice[:-1] (historical messages).
 
         Returns the number of thinking tokens stripped/reclaimed.
         """
-        if not self.config.enabled or not request.messages:
+        target_messages = messages if messages is not None else request.messages
+        if not self.config.enabled or not target_messages:
             return 0
 
         provider_lower = provider.lower()
@@ -37,11 +44,12 @@ class ThinkingManager:
         is_anthropic = "anthropic" in provider_lower or "claude" in model_lower
 
         tokens_reclaimed = 0
+        candidate_messages = target_messages if is_suffix_only else target_messages[:-1]
 
         # 1. Universal OpenAI-compatible / Open-Source Reasoning Protocol:
         # Handles DeepSeek-R1/R2, OpenAI o1/o3/o3-mini, Gemini 2.0/2.5, Grok 3 Think, QwQ, Qwen-Max, Kimi, Doubao
         if self.config.strip_deepseek_reasoning or self.config.strip_gemini_thought:
-            for i, msg in enumerate(request.messages[:-1]):
+            for i, msg in enumerate(candidate_messages):
                 if msg.role == "assistant":
                     # Remove reasoning_content metadata / attributes across all OpenAI-compatible endpoints
                     if "reasoning_content" in msg.metadata:
@@ -84,7 +92,7 @@ class ThinkingManager:
             total_thinking_tokens = 0
             thinking_blocks_found = []
 
-            for m_idx, msg in enumerate(request.messages[:-1]):
+            for m_idx, msg in enumerate(candidate_messages):
                 if msg.role == "assistant" and isinstance(msg.content, list):
                     for b_idx, block in enumerate(msg.content):
                         if isinstance(block, dict) and block.get("type") == "thinking":
@@ -95,7 +103,7 @@ class ThinkingManager:
 
             # Trigger compaction if accumulated thinking exceeds configured limit or on cold recompact
             if was_cold or total_thinking_tokens > self.config.anthropic_max_thinking_tokens:
-                for m_idx, msg in enumerate(request.messages[:-1]):
+                for m_idx, msg in enumerate(candidate_messages):
                     if msg.role == "assistant" and isinstance(msg.content, list):
                         new_content = []
                         for block in msg.content:

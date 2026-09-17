@@ -729,7 +729,7 @@ def create_router(
     # --------------------------------------------------------------------------
     @router.get("/health")
     async def health_check() -> Dict[str, str]:
-        return {"status": "ok", "service": "CtxGuard", "version": "0.1.0"}
+        return {"status": "ok", "service": "CtxGuard", "version": "0.2.1"}
 
     @router.get("/v1/models")
     @router.get("/p/{project}/v1/models")

@@ -88,9 +88,9 @@ class SecretRedactorConfig:
 
 @dataclass
 class ThinkingManagerConfig:
-    enabled: bool = True
-    strip_deepseek_reasoning: bool = True
-    strip_gemini_thought: bool = True
+    enabled: bool = False
+    strip_deepseek_reasoning: bool = False
+    strip_gemini_thought: bool = False
     anthropic_max_thinking_tokens: int = 16384
 
 
