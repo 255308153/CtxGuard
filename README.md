@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-156%20passed-success.svg)]()
+[![Tests](https://img.shields.io/badge/tests-157%20passed-success.svg)]()
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com)
 
 </div>
@@ -52,7 +52,7 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 ### 1. 物理级前缀防抖与 Prompt Cache 保活
 - **二进制切片透传**：对多轮对话中未发生变更的历史消息，跳过 Python 运行时的反序列化与字典重构，直接提取并转发原始 HTTP 请求的底层二进制切片，从根本上杜绝空格、换行符及浮点格式漂移。
 - **Schema 确定性重构**：在网关层递归遍历 `tools` 列表及内部 JSON Schema 定义，统一按字母序进行确定性重排序，彻底解决各类客户端实现中字典无序导致的前缀缓存击穿。
-- **生命周期冷热隔离与经济套利**：将上下文划分为静态系统区与动态交互区。会话建立后自动锁定头部提示词快照，动态注入项仅追加于末尾活跃窗口；内置经济仲裁器，确保压缩收益严格击败云端 Cache 读取折扣。
+- **生命周期冷热隔离与确定性执行**：将上下文划分为静态系统区与动态交互区。会话建立后自动锁定头部提示词快照，动态注入项仅追加于末尾活跃窗口；采用纯粹确定性单向压缩，彻底消除运行时回滚抖动。
 
 ### 2. 工业级 Tree-sitter 多语言语法树引擎 (TreeSitterSkeletonizer)
 - **9+ 门主流语言原生支持**：采用官方预编译纯 C 语言 Tree-sitter 绑定（支持 Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++ 等语言），逐字节精确提取函数/类签名与 Docstring。
@@ -69,10 +69,10 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 - **智能滑动窗口**：保留**头部 25 行**（环境参数、版本信息、启动配置）与**尾部 75 行**（核心报错堆栈、Assertion 失败与退出代码），中间部分折叠存入指纹池（Token 消耗降低 80%+）。
 - **ANSI 控制码清洗与进度条合并**：正则消除 ANSI 颜色代码；对包管理工具连续打印的百分比进度条进行帧合并，仅保留最终完成状态。
 
-### 5. 跨轮次思考链生命周期治理 (ThinkingManager)
-- **DeepSeek-R1 历史思考剥离**：多轮会话中自动清理历史 assistant 消息中的 `reasoning_content` 与 `<think>` 标签，严格遵守 DeepSeek 官方规范，避免思考过程转为普通文本被二次计费。
-- **Google Gemini 思想块过滤**：自动剥离历史中的 `<thought>` 块，保持 Payload 纯净。
-- **Anthropic Claude 3.7 缓存与窗口自适应平衡**：前置轮次保留 `thinking + signature` 保证 100% 享受官方 KV Cache 读取折扣；当会话累积思考超过 16K 或触发冷重整时，安全清洗历史废弃思考，彻底防止 200K 上下文窗口被撑爆。
+### 5. 跨轮次思考链神圣透传与对齐 Headroom 架构 (ThinkingManager)
+- **思考块神圣透传（Passthrough-only）**：严格对齐 Headroom 核心铁律（Invariant I8），对 Assistant 思考链（Claude `thinking` + `signature`、Gemini `<thought>`、DeepSeek `<think>`）默认实施 100% 绝对透传保真。
+- **0 签名报错与 100% 缓存对齐**：彻底杜绝修改思考内容引发的 Anthropic 400 签名崩溃，确保 Google Gemini / DeepSeek 的 KV-Cache 字节级无缝对齐，保障 Agent 长期推演认知连贯性。
+- **冷热双态生命周期**：在热会话期间锁定已缓存前缀；仅在闲置超时（`was_cold=True`）且显式配置时才执行全量基线重塑。
 
 ### 6. 敏感数据与 API 凭证安全脱敏 (SecretRedactor)
 - **多凭证类型识别**：自动拦截并脱敏 OpenAI / Anthropic / GitHub / AWS / JWT 密钥及 Bearer Tokens。
