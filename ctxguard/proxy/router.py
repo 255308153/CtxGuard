@@ -10,6 +10,7 @@ import orjson
 
 logger = logging.getLogger("ctxguard.router")
 
+from ctxguard import __version__
 from ctxguard.config.schema import AppConfig
 from ctxguard.core.context import Message, NormalizedRequest
 from ctxguard.core.pipeline import CompressionPipeline
@@ -738,7 +739,7 @@ def create_router(
     # --------------------------------------------------------------------------
     @router.get("/health")
     async def health_check() -> Dict[str, str]:
-        return {"status": "ok", "service": "CtxGuard", "version": "0.2.1"}
+        return {"status": "ok", "service": "CtxGuard", "version": __version__}
 
     @router.get("/v1/models")
     @router.get("/p/{project}/v1/models")

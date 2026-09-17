@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import time
 
+from ctxguard import __version__
 from ctxguard.config.schema import AppConfig
 from ctxguard.core.pipeline import CompressionPipeline
 from ctxguard.proxy.upstream import UpstreamClient
@@ -39,7 +40,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
     app = FastAPI(
         title="CtxGuard Proxy Gateway",
-        version="0.2.1",
+        version=__version__,
         description="Ultra-lightweight LLM Context Optimization Gateway",
         lifespan=lifespan,
     )
