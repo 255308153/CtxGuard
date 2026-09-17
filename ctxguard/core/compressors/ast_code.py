@@ -102,6 +102,15 @@ class TreeSitterSkeletonizer:
             return cls._LANG_PARSERS[lang_key]
 
         try:
+            import tree_sitter_languages
+            p = tree_sitter_languages.get_parser(lang_key if lang_key != "ts" else "typescript")
+            if p:
+                cls._LANG_PARSERS[lang_key] = (p, lang_key)
+                return (p, lang_key)
+        except Exception:
+            pass
+
+        try:
             from tree_sitter import Language, Parser
 
             if lang_key in ("python", "py"):

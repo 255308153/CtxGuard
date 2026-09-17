@@ -1117,7 +1117,22 @@ def create_router(
             idx = req_path.find("/v1/codex/")
             path = req_path[idx + 1:]
         else:
-            path = "v1/responses"
+            target_prov = upstream.resolve_provider(provider_name)
+            base_url = getattr(target_prov, "base_url", "")
+            # Only bridge to chat/completions if upstream is an explicit third-party relay (not official openai.com)
+            if base_url and ("openai.com" not in base_url) and ("anthropic.com" not in base_url):
+                path = "v1/chat/completions"
+                standard_messages = [
+                    {"role": m.role, "content": m.content} for m in norm_req.messages
+                ]
+                raw_body = {
+                    "model": norm_req.model or "gpt-4o",
+                    "messages": standard_messages,
+                    "stream": norm_req.stream,
+                }
+                fwd_bytes = orjson.dumps(raw_body)
+            else:
+                path = "v1/responses"
         fwd_kwargs = {"raw_body": fwd_bytes}
         duration_ms = (time.perf_counter() - start_time) * 1000
         if req_ctx.original_tokens > req_ctx.optimized_tokens:
