@@ -1142,7 +1142,27 @@ def create_router(
                 prompt_preview=prompt_preview,
             )
 
+        # Check if upstream is a third-party relay (super-nb / custom relay that only speaks ChatCompletions)
+        target_prov = upstream.resolve_provider(provider_name)
+        base_url = getattr(target_prov, "base_url", "")
+        is_relay = ("super-nb.me" in base_url)
+        if is_relay and norm_req.stream:
+            path = "v1/chat/completions"
+            fwd_body = {
+                "model": norm_req.model or "gpt-4o",
+                "messages": [{"role": m.role, "content": m.content} for m in norm_req.messages],
+                "stream": True,
+            }
+            if norm_req.max_tokens:
+                fwd_body["max_tokens"] = norm_req.max_tokens
+            if norm_req.temperature is not None:
+                fwd_body["temperature"] = norm_req.temperature
+            fwd_kwargs = {"raw_body": orjson.dumps(fwd_body)}
+
         if norm_req.stream:
+            # Ensure headers allow text/event-stream
+            headers["Accept"] = "text/event-stream"
+            headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             try:
                 upstream_resp = await upstream.send_stream_request(
                     path, headers=headers, provider_name=provider_name, **fwd_kwargs
@@ -1172,9 +1192,13 @@ def create_router(
                 finally:
                     await upstream_resp.aclose()
 
-            media_type = upstream_resp.headers.get("content-type") or "text/event-stream"
+            media_type = "text/event-stream"
             return StreamingResponse(
-                SSEStreamHandler.passthrough_stream(body_generator(), protocol="openai"),
+                SSEStreamHandler.passthrough_stream(
+                    body_generator(),
+                    protocol="openai",
+                    convert_to_responses=is_relay,
+                ),
                 media_type=media_type,
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
                 status_code=upstream_resp.status_code,

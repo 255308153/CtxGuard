@@ -30,9 +30,15 @@ class UpstreamClient:
 
     def resolve_provider(self, provider_name: Optional[str] = None) -> ProviderConfig:
         """Resolve ProviderConfig by name or default."""
-        p_name = provider_name or self.config.default_provider
-        if p_name in self.config.providers:
-            return self.config.providers[p_name]
+        providers = getattr(self.config, "providers", None)
+        default_p = getattr(self.config, "default_provider", "anthropic")
+        if providers is None and hasattr(self.config, "upstream"):
+            providers = getattr(self.config.upstream, "providers", {})
+            default_p = getattr(self.config.upstream, "default_provider", "anthropic")
+        
+        p_name = provider_name or default_p
+        if providers and p_name in providers:
+            return providers[p_name]
         return ProviderConfig(base_url="https://api.anthropic.com")
 
     def _resolve_api_key(self, provider: ProviderConfig, client_headers: Dict[str, str]) -> Optional[str]:

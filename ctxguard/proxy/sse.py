@@ -2,66 +2,64 @@
 
 from typing import AsyncIterator, Callable, Optional
 import orjson
+import uuid
 
 
 class SSEStreamHandler:
-    """Handles Server-Sent Events stream passing and real-time metrics collection."""
+    """Handles Server-Sent Events stream passing, conversion, and real-time metrics collection."""
 
     @classmethod
     def _parse_sse_line(cls, line: str) -> tuple[int, str, int]:
-        """Parse a single SSE line for usage / cache tokens and total prompt tokens across providers."""
+        """Parse SSE line and extract token usage, finish_reason, or delta content."""
+        tokens = 0
+        finish_reason = ""
         cached_tokens = 0
-        cache_type = "none"
-        prompt_tokens = 0
-        line = line.strip()
-        if not line.startswith("data:"):
-            return 0, "none", 0
-        raw_json = line[5:].strip()
-        if not raw_json or raw_json == "[DONE]":
-            return 0, "none", 0
+
+        line_clean = line.strip()
+        if not line_clean.startswith("data:"):
+            return tokens, finish_reason, cached_tokens
+
+        data_str = line_clean[5:].strip()
+        if data_str == "[DONE]":
+            return tokens, "stop", cached_tokens
+
         try:
-            payload = orjson.loads(raw_json)
-            if isinstance(payload, dict):
-                # Anthropic message_start event
-                if payload.get("type") == "message_start":
-                    msg_obj = payload.get("message", {})
-                    usage = msg_obj.get("usage", {})
-                    read_tokens = usage.get("cache_read_input_tokens", 0)
-                    inp_tokens = usage.get("input_tokens", 0) + read_tokens + usage.get("cache_creation_input_tokens", 0)
-                    if read_tokens > 0:
-                        return read_tokens, "anthropic_cache", inp_tokens
-                    elif inp_tokens > 0:
-                        return 0, "none", inp_tokens
+            payload = orjson.loads(data_str)
+            if not isinstance(payload, dict):
+                return tokens, finish_reason, cached_tokens
 
-                # OpenAI / DeepSeek usage
-                usage = payload.get("usage")
-                if isinstance(usage, dict):
-                    p_tok = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
-                    if "prompt_cache_hit_tokens" in usage and usage["prompt_cache_hit_tokens"] > 0:
-                        return usage["prompt_cache_hit_tokens"], "deepseek_cache", p_tok
-                    elif "prompt_tokens_details" in usage:
-                        c_val = usage["prompt_tokens_details"].get("cached_tokens", 0)
-                        if c_val > 0:
-                            return c_val, "openai_cache", p_tok
-                    elif usage.get("cache_read_input_tokens", 0) > 0:
-                        return usage["cache_read_input_tokens"], "anthropic_cache", p_tok
-                    elif usage.get("cachedContentTokenCount", 0) > 0:
-                        return usage["cachedContentTokenCount"], "gemini_cache", p_tok
-                    elif p_tok > 0:
-                        return 0, "none", p_tok
+            # Anthropic message_delta / usage
+            if "usage" in payload and isinstance(payload["usage"], dict):
+                usage = payload["usage"]
+                tokens += usage.get("output_tokens", 0)
+                tokens += usage.get("completion_tokens", 0)
 
-                # Gemini native SSE: usageMetadata
-                usage_meta = payload.get("usageMetadata")
-                if isinstance(usage_meta, dict):
-                    g_val = usage_meta.get("cachedContentTokenCount") or 0
-                    g_prompt = usage_meta.get("promptTokenCount") or usage_meta.get("prompt_token_count") or 0
-                    if g_val > 0:
-                        return g_val, "gemini_cache", g_prompt
-                    elif g_prompt > 0:
-                        return 0, "none", g_prompt
+            # OpenAI usage chunk
+            if "choices" in payload and isinstance(payload["choices"], list):
+                for choice in payload["choices"]:
+                    if isinstance(choice, dict):
+                        finish_reason = choice.get("finish_reason") or finish_reason
+                        if choice.get("delta", {}).get("content"):
+                            tokens += 1
+
+            # Anthropic content_block_delta
+            if payload.get("type") == "content_block_delta":
+                tokens += 1
+
+            # Anthropic message_stop
+            if payload.get("type") == "message_stop":
+                finish_reason = "stop"
+
+            # Cache metrics
+            if "prompt_tokens_details" in payload and isinstance(payload["prompt_tokens_details"], dict):
+                cached_tokens = payload["prompt_tokens_details"].get("cached_tokens", 0)
+            elif "usage" in payload and isinstance(payload["usage"], dict):
+                cached_tokens = payload["usage"].get("cache_read_input_tokens", 0)
+
         except Exception:
             pass
-        return cached_tokens, cache_type, prompt_tokens
+
+        return tokens, finish_reason, cached_tokens
 
     @classmethod
     async def passthrough_stream(
@@ -69,41 +67,187 @@ class SSEStreamHandler:
         byte_stream: AsyncIterator[bytes],
         on_complete: Optional[Callable[[int, str, Optional[int]], None]] = None,
         protocol: str = "openai",
+        convert_to_responses: bool = False,
     ) -> AsyncIterator[bytes]:
-        """Stream byte chunks directly to the HTTP client while inspecting cache usage."""
-        cached_tokens = 0
-        cache_type = "none"
-        prompt_tokens = 0
+        """Iterate over upstream byte stream, optionally convert ChatCompletions SSE to Responses SSE, and record total output tokens."""
+        total_tokens = 0
+        final_finish_reason = ""
+        cached_tokens_total = 0
+        state = {
+            "created": False,
+            "resp_id": f"resp_{uuid.uuid4().hex[:16]}",
+            "item_id": f"item_{uuid.uuid4().hex[:16]}",
+            "full_text": "",
+        }
 
-        buffer = ""
         try:
             async for chunk in byte_stream:
-                if chunk:
-                    if on_complete:
-                        try:
-                            text = chunk.decode("utf-8", errors="ignore")
-                            buffer += text
-                            while "\n" in buffer:
-                                line, buffer = buffer.split("\n", 1)
-                                c_tok, c_tp, p_tok = cls._parse_sse_line(line)
-                                if c_tok > 0:
-                                    cached_tokens, cache_type = c_tok, c_tp
-                                if p_tok > 0:
-                                    prompt_tokens = p_tok
-                        except Exception:
-                            pass
-                    yield chunk
-        finally:
-            if on_complete:
-                try:
-                    # Flush any remaining line in buffer
-                    if buffer.strip():
-                        c_tok, c_tp, p_tok = cls._parse_sse_line(buffer)
-                        if c_tok > 0:
-                            cached_tokens, cache_type = c_tok, c_tp
-                        if p_tok > 0:
-                            prompt_tokens = p_tok
-                    on_complete(cached_tokens, cache_type, prompt_tokens if prompt_tokens > 0 else None)
-                except Exception:
-                    pass
+                if not chunk:
+                    continue
 
+                if convert_to_responses:
+                    # Convert OpenAI chat.completion chunks to OpenAI Codex/Realtime responses stream
+                    events = cls._transpile_chat_chunk_to_responses(chunk, state)
+                    for ev in events:
+                        yield ev
+                else:
+                    yield chunk
+
+                # Calculate metrics in background
+                text = chunk.decode("utf-8", errors="ignore")
+                for line in text.split("\n"):
+                    tokens, finish_reason, cached_tokens = cls._parse_sse_line(line)
+                    total_tokens += tokens
+                    if finish_reason:
+                        final_finish_reason = finish_reason
+                    if cached_tokens > 0:
+                        cached_tokens_total = cached_tokens
+
+        finally:
+            if convert_to_responses and not state.get("completed_sent"):
+                # Safety fallback: ensure response.completed is always sent even on abrupt finish
+                comp_event = {
+                    "type": "response.completed",
+                    "response": {
+                        "id": state["resp_id"],
+                        "object": "response",
+                        "status": "completed",
+                        "output": [
+                            {
+                                "id": state["item_id"],
+                                "type": "message",
+                                "status": "completed",
+                                "role": "assistant",
+                                "content": [
+                                    {
+                                        "type": "output_text",
+                                        "text": state.get("full_text", ""),
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                }
+                yield f"event: response.completed\ndata: {orjson.dumps(comp_event).decode('utf-8')}\n\n".encode("utf-8")
+
+            if on_complete:
+                on_complete(total_tokens, final_finish_reason or "stop", cached_tokens_total)
+
+    @classmethod
+    def _transpile_chat_chunk_to_responses(cls, chunk_bytes: bytes, state: dict) -> list[bytes]:
+        """Convert OpenAI chat.completion chunks to Codex responses SSE stream format."""
+        text = chunk_bytes.decode("utf-8", errors="ignore")
+        lines = text.split("\n")
+        out_events: list[bytes] = []
+
+        for line in lines:
+            line_clean = line.strip()
+            if not line_clean or not line_clean.startswith("data:"):
+                continue
+
+            data_str = line_clean[5:].strip()
+            if data_str == "[DONE]":
+                state["completed_sent"] = True
+                comp_event = {
+                    "type": "response.completed",
+                    "response": {
+                        "id": state["resp_id"],
+                        "object": "response",
+                        "status": "completed",
+                        "output": [
+                            {
+                                "id": state["item_id"],
+                                "type": "message",
+                                "status": "completed",
+                                "role": "assistant",
+                                "content": [
+                                    {
+                                        "type": "output_text",
+                                        "text": state.get("full_text", ""),
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                }
+                out_events.append(f"event: response.completed\ndata: {orjson.dumps(comp_event).decode('utf-8')}\n\n".encode("utf-8"))
+                continue
+
+            try:
+                payload = orjson.loads(data_str)
+                if not isinstance(payload, dict):
+                    continue
+            except Exception:
+                continue
+
+            if not state.get("created"):
+                state["created"] = True
+                if "id" in payload:
+                    state["resp_id"] = payload["id"]
+                # 1. response.created
+                e1 = {
+                    "type": "response.created",
+                    "response": {
+                        "id": state["resp_id"],
+                        "object": "response",
+                        "status": "in_progress",
+                    },
+                }
+                out_events.append(f"event: response.created\ndata: {orjson.dumps(e1).decode('utf-8')}\n\n".encode("utf-8"))
+
+                # 2. response.output_item.added
+                e2 = {
+                    "type": "response.output_item.added",
+                    "response_id": state["resp_id"],
+                    "output_index": 0,
+                    "item": {
+                        "id": state["item_id"],
+                        "type": "message",
+                        "status": "in_progress",
+                        "role": "assistant",
+                        "content": [],
+                    },
+                }
+                out_events.append(f"event: response.output_item.added\ndata: {orjson.dumps(e2).decode('utf-8')}\n\n".encode("utf-8"))
+
+                # 3. response.content_part.added
+                e3 = {
+                    "type": "response.content_part.added",
+                    "response_id": state["resp_id"],
+                    "item_id": state["item_id"],
+                    "output_index": 0,
+                    "content_index": 0,
+                    "part": {"type": "output_text", "text": ""},
+                }
+                out_events.append(f"event: response.content_part.added\ndata: {orjson.dumps(e3).decode('utf-8')}\n\n".encode("utf-8"))
+
+            choices = payload.get("choices", [])
+            if choices and isinstance(choices, list):
+                choice = choices[0]
+                if isinstance(choice, dict):
+                    delta = choice.get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        state["full_text"] += content
+                        # response.output_text.delta
+                        ed = {
+                            "type": "response.output_text.delta",
+                            "response_id": state["resp_id"],
+                            "item_id": state["item_id"],
+                            "output_index": 0,
+                            "content_index": 0,
+                            "delta": content,
+                        }
+                        out_events.append(f"event: response.output_text.delta\ndata: {orjson.dumps(ed).decode('utf-8')}\n\n".encode("utf-8"))
+                        # response.text.delta (compatibility)
+                        ed2 = {
+                            "type": "response.text.delta",
+                            "response_id": state["resp_id"],
+                            "item_id": state["item_id"],
+                            "output_index": 0,
+                            "content_index": 0,
+                            "delta": content,
+                        }
+                        out_events.append(f"event: response.text.delta\ndata: {orjson.dumps(ed2).decode('utf-8')}\n\n".encode("utf-8"))
+
+        return out_events
