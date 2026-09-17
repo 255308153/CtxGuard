@@ -2,7 +2,7 @@
 
 import ast
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from ctxguard.core.compressors.base import BaseCompressor
 from ctxguard.core.context import RequestContext, Message
 from ctxguard.config.schema import ASTCodeCompressorConfig
@@ -90,8 +90,152 @@ class PythonASTSkeletonizer:
         return skeleton_code
 
 
+class TreeSitterSkeletonizer:
+    """Industrial-grade multi-language AST code skeletonizer powered by Tree-sitter (TS, JS, Go, Rust, Java, C, C++, Python)."""
+
+    _LANG_PARSERS: Dict[str, Tuple[Any, str]] = {}
+
+    @classmethod
+    def get_parser_and_lang(cls, lang_name: str) -> Optional[Tuple[Any, str]]:
+        lang_key = lang_name.lower().strip()
+        if lang_key in cls._LANG_PARSERS:
+            return cls._LANG_PARSERS[lang_key]
+
+        try:
+            from tree_sitter import Language, Parser
+
+            if lang_key in ("python", "py"):
+                import tree_sitter_python
+                lang = Language(tree_sitter_python.language())
+                p = Parser(lang)
+                cls._LANG_PARSERS[lang_key] = (p, "python")
+                return (p, "python")
+
+            if lang_key in ("javascript", "js", "jsx"):
+                import tree_sitter_javascript
+                lang = Language(tree_sitter_javascript.language())
+                p = Parser(lang)
+                cls._LANG_PARSERS[lang_key] = (p, "javascript")
+                return (p, "javascript")
+
+            if lang_key in ("typescript", "ts"):
+                import tree_sitter_typescript
+                lang = Language(tree_sitter_typescript.language_typescript())
+                p = Parser(lang)
+                cls._LANG_PARSERS[lang_key] = (p, "typescript")
+                return (p, "typescript")
+
+            if lang_key in ("tsx",):
+                import tree_sitter_typescript
+                lang = Language(tree_sitter_typescript.language_tsx())
+                p = Parser(lang)
+                cls._LANG_PARSERS[lang_key] = (p, "tsx")
+                return (p, "tsx")
+
+            if lang_key in ("go", "golang"):
+                import tree_sitter_go
+                lang = Language(tree_sitter_go.language())
+                p = Parser(lang)
+                cls._LANG_PARSERS[lang_key] = (p, "go")
+                return (p, "go")
+
+            if lang_key in ("rust", "rs"):
+                import tree_sitter_rust
+                lang = Language(tree_sitter_rust.language())
+                p = Parser(lang)
+                cls._LANG_PARSERS[lang_key] = (p, "rust")
+                return (p, "rust")
+
+            if lang_key in ("java",):
+                import tree_sitter_java
+                lang = Language(tree_sitter_java.language())
+                p = Parser(lang)
+                cls._LANG_PARSERS[lang_key] = (p, "java")
+                return (p, "java")
+
+            if lang_key in ("c",):
+                import tree_sitter_c
+                lang = Language(tree_sitter_c.language())
+                p = Parser(lang)
+                cls._LANG_PARSERS[lang_key] = (p, "c")
+                return (p, "c")
+
+            if lang_key in ("cpp", "c++", "cc", "cxx"):
+                import tree_sitter_cpp
+                lang = Language(tree_sitter_cpp.language())
+                p = Parser(lang)
+                cls._LANG_PARSERS[lang_key] = (p, "cpp")
+                return (p, "cpp")
+
+        except Exception:
+            return None
+
+        return None
+
+    @classmethod
+    def skeletonize(
+        cls,
+        code_str: str,
+        lang_name: str,
+        short_sha: str,
+        min_body_lines: int = 4
+    ) -> Optional[str]:
+        parser_info = cls.get_parser_and_lang(lang_name)
+        if not parser_info:
+            return None
+
+        parser, canonical_lang = parser_info
+        code_bytes = code_str.encode("utf-8")
+        try:
+            tree = parser.parse(code_bytes)
+        except Exception:
+            return None
+
+        folds: List[Tuple[int, int, int, int]] = []
+        body_node_types = {"statement_block", "block", "compound_statement", "constructor_body"}
+        func_node_types = {
+            "function_declaration", "function_definition", "function_item",
+            "method_declaration", "method_definition", "constructor_declaration",
+            "arrow_function"
+        }
+
+        def find_body(node: Any) -> None:
+            if node.type in func_node_types:
+                for child in node.children:
+                    if child.type in body_node_types:
+                        start_line = child.start_point[0]
+                        end_line = child.end_point[0]
+                        line_count = end_line - start_line + 1
+                        if line_count >= min_body_lines:
+                            indent_col = node.start_point[1]
+                            folds.append((child.start_byte, child.end_byte, line_count, indent_col))
+                        break
+            for child in node.children:
+                find_body(child)
+
+        find_body(tree.root_node)
+        if not folds:
+            return None
+
+        # Sort descending by start_byte to replace from bottom to top
+        folds.sort(key=lambda x: x[0], reverse=True)
+        mut_bytes = bytearray(code_bytes)
+
+        comment_prefix = "#" if canonical_lang == "python" else "//"
+
+        for start_b, end_b, line_count, indent_col in folds:
+            indent_str = " " * indent_col
+            if canonical_lang == "python":
+                rep_text = f":\n{indent_str}    ...  # [CtxGuard: Implementation folded ({line_count} lines). Use ctx_expand('{short_sha}') if details needed]"
+            else:
+                rep_text = f" {{\n{indent_str}    {comment_prefix} [CtxGuard: Implementation folded ({line_count} lines). Use ctx_expand('{short_sha}') if details needed]\n{indent_str}}}"
+            mut_bytes[start_b:end_b] = rep_text.encode("utf-8")
+
+        return mut_bytes.decode("utf-8", errors="replace")
+
+
 class GenericBraceSkeletonizer:
-    """Heuristic skeletonizer for C-style brace languages (JS/TS, Go, Rust, Java, C/C++)."""
+    """Heuristic skeletonizer fallback for C-style brace languages (JS/TS, Go, Rust, Java, C/C++)."""
 
     FUNC_DEF_REGEX = re.compile(
         r"^(\s*(?:export\s+)?(?:async\s+)?(?:function|func|fn|public|private|protected|def)?\s*[\w\<\>\[\]\s,\*&]+\([^\)]*\)[^{;\n]*)\{\s*$",
@@ -116,7 +260,6 @@ class GenericBraceSkeletonizer:
 
         while i < n:
             line = lines[i]
-            # Match function header ending with {
             match = cls.FUNC_DEF_REGEX.match(line)
             if match and "{" in line:
                 header = line
@@ -134,7 +277,6 @@ class GenericBraceSkeletonizer:
                     curr_i += 1
 
                 if brace_depth == 0 and body_lines_count >= min_body_lines:
-                    # Successfully found closing brace
                     new_lines.append(header)
                     new_lines.append(f"{indent_str}    // [CtxGuard: Implementation folded ({body_lines_count} lines). Use ctx_expand('{short_sha}') if details needed]")
                     new_lines.append(f"{indent_str}}}")
@@ -206,14 +348,22 @@ class ASTCodeCompressor(BaseCompressor):
                     self.fingerprint_repo.save_fingerprint(sha, session_id, code_body)
                     self.fingerprint_repo.save_fingerprint(short_sha, session_id, code_body)
 
-                skeleton = None
-                if lang in ["python", "py", ""]:
+                # Priority 1: High-precision Tree-sitter multi-language parser
+                skeleton = TreeSitterSkeletonizer.skeletonize(
+                    code_body,
+                    lang_name=lang,
+                    short_sha=short_sha
+                )
+
+                # Priority 2: Native Python AST fallback for python
+                if not skeleton and lang in ["python", "py", ""]:
                     skeleton = PythonASTSkeletonizer.skeletonize(
                         code_body,
                         short_sha=short_sha,
                         preserve_docstrings=self.config.preserve_docstrings
                     )
 
+                # Priority 3: Heuristic Generic Brace Fallback
                 if not skeleton and lang in self.config.supported_languages:
                     skeleton = GenericBraceSkeletonizer.skeletonize(
                         code_body,
@@ -238,11 +388,13 @@ class ASTCodeCompressor(BaseCompressor):
                 self.fingerprint_repo.save_fingerprint(sha, session_id, text)
                 self.fingerprint_repo.save_fingerprint(short_sha, session_id, text)
 
-            skeleton = PythonASTSkeletonizer.skeletonize(
-                text,
-                short_sha=short_sha,
-                preserve_docstrings=self.config.preserve_docstrings
-            )
+            skeleton = TreeSitterSkeletonizer.skeletonize(text, lang_name="python", short_sha=short_sha)
+            if not skeleton:
+                skeleton = PythonASTSkeletonizer.skeletonize(
+                    text,
+                    short_sha=short_sha,
+                    preserve_docstrings=self.config.preserve_docstrings
+                )
             if not skeleton:
                 skeleton = GenericBraceSkeletonizer.skeletonize(text, short_sha=short_sha)
 

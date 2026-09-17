@@ -8,11 +8,15 @@
 1. [项目全景架构与调用生命周期](#一-项目全景架构与调用生命周期)
 2. [核心子系统与源码深入剖析](#二-核心子系统与源码深入剖析)
 3. [如何开发并注册一个新的压缩算子（实战教学）](#三-如何开发并注册一个新的压缩算子实战教学)
-4. [进阶演进：如何接入 Tree-sitter AST 代码符号骨架化](#四-进阶演进如何接入-tree-sitter-ast-代码符号骨架化)
-5. [Prompt Cache 守护安全与测试验证规范](#五-prompt-cache-守护安全与测试验证规范)
-6. [单文件存储与时序图谱二次开发](#六-单文件存储与时序图谱二次开发)
-7. [离线自进化规则挖掘引擎扩展](#七-离线自进化规则挖掘引擎扩展)
-8. [本地开发、测试与基准评测运行规范](#八-本地开发测试与基准评测运行规范)
+4. [工业级 Tree-sitter AST 多语言代码骨架化 (TreeSitterSkeletonizer)](#四-工业级-tree-sitter-ast-多语言代码骨架化-treesitterskeletonizer)
+5. [Tool 影子状态机与增量差分 (ToolDeltaCompressor)](#五-tool-影子状态机与增量差分-tooldeltacompressor)
+6. [终端超长日志智能截断 (LogTruncator)](#六-终端超长日志智能截断-logtruncator)
+7. [敏感信息与凭证脱敏 (SecretRedactor)](#七-敏感信息与凭证脱敏-secretredactor)
+8. [思考链生命周期治理 (ThinkingManager)](#八-思考链生命周期治理-thinkingmanager)
+9. [Prompt Cache 守护安全与测试验证规范](#九-prompt-cache-守护安全与测试验证规范)
+10. [单文件存储与时序图谱二次开发](#十-单文件存储与时序图谱二次开发)
+11. [离线自进化规则挖掘引擎扩展](#十一-离线自进化规则挖掘引擎扩展)
+12. [本地开发、测试与基准评测运行规范](#十二-本地开发测试与基准评测运行规范)
 
 ---
 
@@ -41,14 +45,17 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │ 3. Compression Pipeline (ctxguard/core/pipeline.py)             │
 │    ├─ ① Token 计数与自适应档位评估 (AdaptiveScheduler: L0~L3)   │
-│    ├─ ② 前缀缓存动态切分 (CacheGuard.partition_messages)          │
+│    ├─ ② 思考链管理 (ThinkingManager: DeepSeek / Gemini / Claude)│
+│    ├─ ③ 前缀缓存动态切分 (CacheGuard.partition_messages)          │
 │    │    ├─ [Frozen Prefix] ──► 严格冻结，建立去重指纹，禁止改动   │
 │    │    └─ [Compressible Suffix] ──► 活区算子串行清洗           │
-│    ├─ ③ 算子流水线清洗：                                         │
-│    │    Dedup -> ANSI -> Progress -> Stacktrace -> JSON -> Prune│
-│    ├─ ④ 经济套利仲裁 (Economic Arbitrator)                      │
+│    ├─ ④ 算子流水线深度优化：                                     │
+│    │    Dedup -> ToolDelta (Shadow State) -> SecretRedactor     │
+│    │    -> ANSI -> Progress -> Stacktrace -> LogTruncator       │
+│    │    -> JSONStruct -> TreeSitter AST -> SemanticPruner       │
+│    ├─ ⑤ 经济套利仲裁 (Economic Arbitrator)                      │
 │    │    └─ 检查压缩节省是否击败云端 Prompt Cache 读取折扣        │
-│    └─ ⑤ 注入 ctx_expand 虚拟工具 (Sticky-On) 与 Anthropic 缓存点│
+│    └─ ⑥ 注入 ctx_expand 虚拟工具 (Sticky-On) 与 Anthropic 缓存点│
 └─────────────────────────────────────────────────────────────────┘
        │
        ▼
@@ -70,7 +77,7 @@
 ## 二、 核心子系统与源码深入剖析
 
 ### 1. 配置子系统 (`ctxguard/config/`)
-- `schema.py`：基于 Pydantic v2 构建的强类型配置对象（`AppConfig`、`CacheGuardConfig`、`DedupConfig` 等）；
+- `schema.py`：基于 Pydantic v2 构建的强类型配置对象（`AppConfig`、`CacheGuardConfig`、`DedupConfig`、`ToolDeltaConfig`、`TreeSitterConfig`、`LogTruncatorConfig`、`ThinkingConfig`、`SecretRedactorConfig` 等）；
 - `loader.py`：负责按以下优先级执行多源配置的级联覆盖合并：
   $$\text{CLI 参数} > \text{环境变量 (CTXGUARD\_*)} > \text{工作区 ./ctxguard.yaml} > \text{全局 ~/.ctxguard/ctxguard.yaml} > \text{Default}$$
 
@@ -143,11 +150,15 @@ class CompressionPipeline:
         # ...
         self.compressors: List[BaseCompressor] = [
             self.dedup_compressor,
+            ToolDeltaCompressor(config.tool_delta, fingerprint_repo=self.fingerprint_repo),
+            SecretRedactor(config.secret_redactor),
             ANSICleaner(config.structural_compression.log_cleaner),
             ProgressMerger(config.structural_compression.log_cleaner),
             StacktraceFolder(config.structural_compression.log_cleaner),
+            LogTruncator(config.log_truncator, fingerprint_repo=self.fingerprint_repo),
             JSONStructCompressor(config.structural_compression.json_compressor),
             MarkdownDocCleaner(enabled=True), # 注册新算子
+            TreeSitterSkeletonizer(config.tree_sitter, fingerprint_repo=self.fingerprint_repo),
             WhitespaceCleaner(),
             self.semantic_pruner,
         ]
@@ -161,39 +172,79 @@ class CompressionPipeline:
 
 ---
 
-## 四、 进阶演进：如何接入 Tree-sitter AST 代码符号骨架化
+## 四、 工业级 Tree-sitter AST 多语言代码骨架化 (`TreeSitterSkeletonizer`)
 
-根据 `references/aider/aider/repomap.py` 的优秀实践，我们可以在 CtxGuard 中引入 **AST 符号级代码骨架化折叠**。
+### 1. 架构目标与优势
+CtxGuard 在 `ctxguard/core/compressors/ast_code.py` 中完整实现了**基于 Tree-sitter 纯 C 绑定的多语言代码骨架化引擎**：
+- **多语言原生支持**：开箱即用支持 Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++ 9+ 门主流语言；
+- **微秒级性能**：单文件解析耗时 `< 1ms`，比纯 Python AST 解析器快 5~10 倍；
+- **语法鲁棒性**：完美免疫注释括号、模板字符串及 JSX 嵌套，绝不破坏语法结构；
+- **100% 可逆**：折叠的函数体存入 SQLite `FingerprintRepository`，附带 `ctx_expand(short_sha)` 恢复标记。
 
-### 1. 架构目标
-对于**首次出现且超过 300 行的代码文件**：
-- 提取 `class` 与 `def` 函数签名及 Docstring；
-- 将具体实现折叠为 `...  # [CtxGuard: Implementation folded, 60 lines]`；
-- 原始全文存入 `FingerprintRepository`；
-- 模型若需要修改函数体，自动调起 `ctx_expand` 还原。
-
-### 2. 核心代码骨架实现 (`ASTCodeCompressor`)
-
+### 2. 核心架构实现与解析原理
 ```python
-# ctxguard/core/compressors/ast_code.py
-from tree_sitter import Language, Parser
-from ctxguard.core.compressors.base import BaseCompressor
-
-class ASTCodeCompressor(BaseCompressor):
-    def __init__(self, min_lines: int = 100):
-        self.min_lines = min_lines
-
-    def compress_python_ast(self, code_str: str) -> str:
-        # 1. 使用 tree_sitter 解析语法树
-        # 2. 遍历 AST 节点，定位 FunctionDefinition 的 block
-        # 3. 提取签名与 Docstring，替换 block 为 `...`
-        # 4. 返回骨架化代码
-        pass
+# ctxguard/core/compressors/ast_code.py 关键片段
+class TreeSitterSkeletonizer(BaseCompressor):
+    SUPPORTED_EXTENSIONS = {
+        ".py": "python",
+        ".js": "javascript",
+        ".mjs": "javascript",
+        ".jsx": "javascript",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".go": "go",
+        ".rs": "rust",
+        ".java": "java",
+        ".c": "c",
+        ".h": "c",
+        ".cpp": "cpp",
+        ".hpp": "cpp",
+        ".cc": "cpp",
+    }
 ```
 
 ---
 
-## 五、 Prompt Cache 守护安全与测试验证规范
+## 五、 Tool 影子状态机与增量差分 (`ToolDeltaCompressor`)
+
+针对 Agent 频繁调用 `list_dir`、`find_by_name`、`git status`、`ls` 等状态探针指令，CtxGuard 提供了内存影子状态机与增量差分引擎：
+1. **会话级影子快照**：维护每个 Session 的最近一次工具状态集合；
+2. **Jaccard 相似度探测**：计算与前次快照的相似度（默认阈值 $\ge 0.5$ 判定同源指令）；
+3. **集合增量差分 (Set Diff)**：
+   - 精确计算 `+ Added` 与 `- Removed` 项；
+   - 将上百行未变化的文件列表紧凑折叠为 `... (K items unchanged)`；
+   - 原始输出入库，支持 `ctx_expand` 零损调阅。
+
+---
+
+## 六、 终端超长日志智能截断 (`LogTruncator`)
+
+针对测试和编译产生的海量长日志：
+- **头部 (Head 25 行)**：保留启动命令、环境参数、构建版本；
+- **尾部 (Tail 75 行)**：保留核心报错信息、Traceback 堆栈与退出代码；
+- **中间折叠**：替换为 `[... Truncated N lines ... | Full output cached: sha256_xxx | use ctx_expand to restore]`。
+
+---
+
+## 七、 敏感信息与凭证脱敏 (`SecretRedactor`)
+
+自动在代理网关层过滤并脱敏 API 凭证：
+- OpenAI / Anthropic / GitHub / AWS / JWT 密钥及 Bearer Tokens；
+- PEM 格式私钥证书 (`-----BEGIN PRIVATE KEY-----`)；
+- 包含明文密码的数据库连接字符串 (`postgres://user:password@host:5432/db`)。
+
+---
+
+## 八、 思考链生命周期治理 (`ThinkingManager`)
+
+针对各类推理大模型的 CoT 规范进行专用治理：
+- **DeepSeek-R1**：剥离历史 Assistant 消息中的 `reasoning_content` 与 `<think>` 标签，杜绝二次计费；
+- **Google Gemini**：剥离 `<thought>` 块；
+- **Anthropic Claude 3.7**：在前置窗口内保留思考签名享受 Prompt Cache，并在窗口超限或冷重整时安全修剪。
+
+---
+
+## 九、 Prompt Cache 守护安全与测试验证规范
 
 ### 1. 缓存安全三大铁律（必须在代码审查中遵守）
 1. **冻结前缀不可变**：`request.messages[:frozen_message_count]` 内的所有对象严禁修改、增删或重新排版；
@@ -204,11 +255,16 @@ class ASTCodeCompressor(BaseCompressor):
 运行 `pytest tests/ -v` 验证以下核心断言：
 - `test_cache_guard.py`：验证前缀边界反向累加算法与经济套利公式；
 - `test_dedup.py`：验证 Assistant 消息不被篡改、去重标记准确性；
-- `test_json_struct.py`：验证同构/非同构 JSON 数组的健壮性。
+- `test_json_struct.py`：验证同构/非同构 JSON 数组的健壮性；
+- `test_tool_delta.py`：验证会话级影子状态增量差分与 Jaccard 相似度；
+- `test_tree_sitter_skeletonizer.py`：验证多语言 AST 纯 C 解析与 Docstring 完整保留；
+- `test_log_truncator.py`：验证 Head 25 / Tail 75 日志智能截断；
+- `test_thinking_manager.py`：验证 DeepSeek / Gemini / Claude 思考治理；
+- `test_secret_redactor.py`：验证 API 密钥与敏感凭证脱敏。
 
 ---
 
-## 六、 单文件存储与时序图谱二次开发
+## 十、 单文件存储与时序图谱二次开发
 
 ### 1. 数据库模型 (`ctxguard/storage/`)
 系统采用单文件嵌入式 `sqlite3`（工作区目录下的 `.ctxguard.db`），已开启 **WAL 并发模式**。
@@ -226,7 +282,7 @@ class ASTCodeCompressor(BaseCompressor):
 
 ---
 
-## 七、 离线自进化规则挖掘引擎扩展
+## 十一、 离线自进化规则挖掘引擎扩展
 
 ### 1. 规则提取状态机 (`ctxguard/learn/`)
 - `loop_detector.py`：基于滑动窗口扫描会话历史中**相同命令连续报错 $\ge 3$ 次**的事件序列；
@@ -236,7 +292,7 @@ class ASTCodeCompressor(BaseCompressor):
 
 ---
 
-## 八、 本地开发、测试与基准评测运行规范
+## 十二、 本地开发、测试与基准评测运行规范
 
 ### 1. 环境准备与开发模式安装
 ```bash

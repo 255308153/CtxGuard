@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ctxguard"
-version = "0.1.0"
+version = "0.2.0"
 description = "CtxGuard: Ultra-lightweight, zero-dependency LLM Context Optimization & Guardian Proxy"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,6 +28,15 @@ dependencies = [
     "orjson>=3.9.15",
     "pyyaml>=6.0.1",
     "jieba>=0.42.1",
+    "tree-sitter>=0.22.0",
+    "tree-sitter-python>=0.21.0",
+    "tree-sitter-javascript>=0.21.0",
+    "tree-sitter-typescript>=0.21.0",
+    "tree-sitter-go>=0.21.0",
+    "tree-sitter-rust>=0.21.0",
+    "tree-sitter-java>=0.21.0",
+    "tree-sitter-c>=0.21.0",
+    "tree-sitter-cpp>=0.21.0",
 ]
 
 [project.optional-dependencies]

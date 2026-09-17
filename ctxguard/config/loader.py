@@ -15,6 +15,11 @@ from ctxguard.config.schema import (
     StructuralCompressionConfig,
     LogCleanerConfig,
     JSONCompressorConfig,
+    ASTCodeCompressorConfig,
+    GitDiffCompressorConfig,
+    SecretRedactorConfig,
+    ThinkingManagerConfig,
+    ToolDeltaConfig,
     AdaptivePipelineConfig,
     LevelConfig,
     CacheGuardConfig,
@@ -119,6 +124,10 @@ class ConfigLoader:
         if sc_data:
             lc_data = sc_data.get("log_cleaner", {})
             jc_data = sc_data.get("json_compressor", {})
+            ast_data = sc_data.get("ast_compressor", {})
+            diff_data = sc_data.get("git_diff", {})
+            sec_data = sc_data.get("secret_redactor", {})
+            delta_data = sc_data.get("tool_delta", {})
             config.structural_compression = StructuralCompressionConfig(
                 log_cleaner=LogCleanerConfig(
                     enabled=lc_data.get("enabled", config.structural_compression.log_cleaner.enabled),
@@ -126,12 +135,37 @@ class ConfigLoader:
                     merge_progress_bars=lc_data.get("merge_progress_bars", config.structural_compression.log_cleaner.merge_progress_bars),
                     fold_repeated_stacktraces=lc_data.get("fold_repeated_stacktraces", config.structural_compression.log_cleaner.fold_repeated_stacktraces),
                     stacktrace_threshold=int(lc_data.get("stacktrace_threshold", config.structural_compression.log_cleaner.stacktrace_threshold)),
+                    max_log_lines=int(lc_data.get("max_log_lines", config.structural_compression.log_cleaner.max_log_lines)),
+                    head_lines=int(lc_data.get("head_lines", config.structural_compression.log_cleaner.head_lines)),
+                    tail_lines=int(lc_data.get("tail_lines", config.structural_compression.log_cleaner.tail_lines)),
                     custom_patterns=lc_data.get("custom_patterns", config.structural_compression.log_cleaner.custom_patterns),
                 ),
                 json_compressor=JSONCompressorConfig(
                     enabled=jc_data.get("enabled", config.structural_compression.json_compressor.enabled),
                     min_array_length=int(jc_data.get("min_array_length", config.structural_compression.json_compressor.min_array_length)),
                     ignore_keys=jc_data.get("ignore_keys", config.structural_compression.json_compressor.ignore_keys),
+                ),
+                ast_compressor=ASTCodeCompressorConfig(
+                    enabled=ast_data.get("enabled", config.structural_compression.ast_compressor.enabled),
+                    min_lines=int(ast_data.get("min_lines", config.structural_compression.ast_compressor.min_lines)),
+                    preserve_docstrings=ast_data.get("preserve_docstrings", config.structural_compression.ast_compressor.preserve_docstrings),
+                    supported_languages=ast_data.get("supported_languages", config.structural_compression.ast_compressor.supported_languages),
+                ),
+                git_diff=GitDiffCompressorConfig(
+                    enabled=diff_data.get("enabled", config.structural_compression.git_diff.enabled),
+                    min_lines=int(diff_data.get("min_lines", config.structural_compression.git_diff.min_lines)),
+                    max_context_lines=int(diff_data.get("max_context_lines", config.structural_compression.git_diff.max_context_lines)),
+                ),
+                secret_redactor=SecretRedactorConfig(
+                    enabled=sec_data.get("enabled", config.structural_compression.secret_redactor.enabled),
+                    mask_token=sec_data.get("mask_token", config.structural_compression.secret_redactor.mask_token),
+                    custom_patterns=sec_data.get("custom_patterns", config.structural_compression.secret_redactor.custom_patterns),
+                ),
+                tool_delta=ToolDeltaConfig(
+                    enabled=delta_data.get("enabled", config.structural_compression.tool_delta.enabled),
+                    min_items=int(delta_data.get("min_items", config.structural_compression.tool_delta.min_items)),
+                    max_delta_ratio=float(delta_data.get("max_delta_ratio", config.structural_compression.tool_delta.max_delta_ratio)),
+                    max_delta_items=int(delta_data.get("max_delta_items", config.structural_compression.tool_delta.max_delta_items)),
                 ),
             )
 
@@ -161,6 +195,16 @@ class ConfigLoader:
                 freeze_system_prompt=cg_data.get("freeze_system_prompt", config.cache_guard.freeze_system_prompt),
                 freeze_prefix_rounds=int(cg_data.get("freeze_prefix_rounds", config.cache_guard.freeze_prefix_rounds)),
                 auto_anthropic_cache_control=cg_data.get("auto_anthropic_cache_control", config.cache_guard.auto_anthropic_cache_control),
+            )
+
+        # Thinking manager
+        tm_data = data.get("thinking_manager", {})
+        if tm_data:
+            config.thinking_manager = ThinkingManagerConfig(
+                enabled=bool(tm_data.get("enabled", config.thinking_manager.enabled)),
+                strip_deepseek_reasoning=bool(tm_data.get("strip_deepseek_reasoning", config.thinking_manager.strip_deepseek_reasoning)),
+                strip_gemini_thought=bool(tm_data.get("strip_gemini_thought", config.thinking_manager.strip_gemini_thought)),
+                anthropic_max_thinking_tokens=int(tm_data.get("anthropic_max_thinking_tokens", config.thinking_manager.anthropic_max_thinking_tokens)),
             )
 
         # Learn

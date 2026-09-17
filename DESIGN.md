@@ -83,34 +83,50 @@ graph TD
 - **职责**：监听端口（如 `http://127.0.0.1:8787`），解析并归一化请求体。
 - **协议自适应**：自动识别 OpenAI / Anthropic 协议，转换为内部统一的 `NormalizedRequest`。
 
-### 2. Layer 2: 会话指纹去重器（SHA-256 Dedup）
-- **核心逻辑**：
-  - 对每个工具返回值、文件内容计算 `SHA-256` 指纹，维护在会话内存字典中；
-  - **首次出现**：记录原始文本到内存，原样放行；
+### 2. Layer 2: 会话指纹去重器与 Tool 影子状态增量差分（SHA-256 Dedup & Tool Delta Shadow State）
+- **会话全局指纹去重（sqz 模式）**：
+  - 对每个工具返回值、文件读取内容计算 `SHA-256` 指纹，维护在会话内存字典与 SQLite 中；
+  - **首次出现**：记录原始文本到指纹池，原样放行；
   - **二次及后续出现**：替换为简短引用标记：
     ```text
     [Ref:sha256_e4d909... | File: src/main.py | 350 lines unchanged]
     ```
-  - **可逆保障**：在 Tool 列表中自动追加 `ctx_expand(ref_id)`，模型若需细节可随时反查。
+  - **100% 可逆保障**：向大模型上下文注入 `ctx_expand(ref_id)` 工具，模型若需重读细节可毫秒级 0 Token 开销反查。
+- **Tool 影子状态机与增量差分器（Tool Delta & Shadow State Engine）**：
+  - 针对 Agent 频繁调用 `list_dir`、`find_by_name`、`git status`、`ls` 等状态探针指令，在内存中维护会话维度的**文件与目录快照影子状态机**（Shadow State）；
+  - **Jaccard 集合相似度探测**：计算当前工具输出与历史影子状态的集合重合度（Jaccard $\ge 0.5$ 判定为同源状态更新）；
+  - **增量集合差分（Set Differencing）**：
+    - 计算 `Added`（新增项）与 `Removed`（删除项）；
+    - 保留新增与删除项的详细路径，将海量未变更条目折叠为 `... (K items unchanged)`；
+    - 完整输出存入本地指纹池，附加 `[Full output cached: sha256_xxx | use ctx_expand to restore]` 标记，兼顾 80%+ Token 节省与 100% 状态可逆性。
 
 ### 3. Layer 3: 结构感知无损压缩器（Structural Compressor）
-- **终端与日志清洗**：
+- **工业级 Tree-sitter 纯 C 多语言语法树解析引擎**：
+  - 彻底抛弃脆弱的花括号正则匹配，采用官方预编译纯 C 语言 Tree-sitter 绑定（支持 Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++ 等 9+ 门主流语言）。
+  - 逐字节精准定位函数与类实现体，完美免疫注释括号、模板字符串及 JSX/TSX 嵌套，单文件解析耗时 `< 1ms`。
+  - 函数签名与 Docstring 100% 完整保留，函数体折叠后存入 SQLite `FingerprintRepository`，可通过 `ctx_expand(short_sha)` 随时索要完整实现。
+- **终端与长日志 Head-Tail 全局智能截断（Log Truncator）**：
   - 正则消除 ANSI 颜色代码（`\x1b\[[0-9;]*m`）；
   - 合并重复的构建进度条（如 `[====>    ] 30%` 只保留最终帧）；
-  - 折叠重复堆栈（连续出现 10 次的相同第三方库异常只保留 1 次并标注 `[Repeated 9 times]`）。
-- **JSON 数组扁平化**：
-  - 检测到由相似字典构成的数组时，自动提取公共 Keys 为表头，数据转为数组或紧凑格式：
+  - 折叠重复堆栈（连续相同异常日志自动压缩）；
+  - **全局 Head-Tail 截断器**：针对 `npm test`、`cargo build`、`pip install` 产生的数千行非重复编译/测试长日志，自动保留**头部 25 行（环境与参数）+ 尾部 75 行（核心报错堆栈与退出码）**，中间部分存入指纹池并提供可逆展开标记（削减 80%+ 工具输出 Token）。
+- **JSON 数组同构紧凑化**：
+  - 检测到由相似字典构成的数组时，自动提取公共 Keys 为表头，数据转为紧凑表格：
     ```json
     // 压缩前 (300 Token)
     [{"id": 1, "name": "Alice", "role": "admin"}, {"id": 2, "name": "Bob", "role": "user"}]
     // 压缩后 (120 Token)
     {"_schema": ["id", "name", "role"], "_rows": [[1, "Alice", "admin"], [2, "Bob", "user"]]}
     ```
+- **敏感信息与 API 密钥安全脱敏器（Secret Redactor）**：
+  - 自动识别并脱敏 OpenAI / Anthropic / GitHub / AWS / JWT 密钥、私钥证书（`-----BEGIN PRIVATE KEY-----`）以及包含密码的数据库连接 URI（`postgres://user:***@host:5432/db`），杜绝敏感凭据外泄。
 
-### 4. Layer 4: 自适应语义剪枝器（Adaptive Pruner）
-- **分级策略**：
-  - **Level 1（默认，纯规则）**：合并多余换行、修剪超长空行、剥离无效占位符；
-  - **Level 2（长上下文激活）**：触发轻量 ONNX 分类器，快速剔除低权重停用词。
+### 4. Layer 4: 跨轮次思考链与生命周期治理（Thinking & CoT Manager）
+- **DeepSeek-R1 历史思考剥离**：多轮会话中自动清理历史 assistant 消息中的 `reasoning_content` 与 `<think>` 标签，严格遵守 DeepSeek 官方规范，避免思考过程转为普通文本被二次计费。
+- **Google Gemini 思想块过滤**：自动剥离历史中的 `<thought>` 块，保持 Payload 纯净。
+- **Anthropic Claude 3.7 缓存与窗口自适应平衡**：
+  - 前置轮次保留 `thinking + signature` 保证 100% 享受官方 KV Cache 读取折扣；
+  - 当会话累积思考超过 `anthropic_max_thinking_tokens`（默认 16K）或触发冷重整时，安全清洗历史废弃思考，彻底防止 200K 上下文窗口被撑爆。
 
 ### 5. Layer 5: Prompt Cache 守护者（Prefix Freezer）
 - **保卫官方缓存**：

@@ -48,6 +48,11 @@ class StatsRepository:
         cache_type: str = "none",
     ) -> int:
         """Record a completed request metric with session, project, preview, and cache stats."""
+        # Ensure optimized_tokens is at least cached_tokens (ground truth consistency)
+        if cached_tokens > 0:
+            optimized_tokens = max(optimized_tokens, cached_tokens)
+            raw_tokens = max(raw_tokens, optimized_tokens)
+
         saved_tokens = max(0, raw_tokens - optimized_tokens)
         saved_ratio = round((saved_tokens / max(1, raw_tokens)) * 100, 2)
 
@@ -89,19 +94,44 @@ class StatsRepository:
             conn.commit()
             return cursor.lastrowid
 
-    def update_cache_stats(self, request_id: int, cached_tokens: int, cache_type: str) -> None:
-        """Update cached tokens and cache type after streaming response usage is parsed."""
+    def update_cache_stats(
+        self,
+        request_id: int,
+        cached_tokens: int,
+        cache_type: str,
+        prompt_tokens: Optional[int] = None,
+    ) -> None:
+        """Update cached tokens, cache type, and exact upstream prompt tokens after streaming response completes."""
         if not request_id:
             return
         with self.db.get_connection() as conn:
-            conn.execute(
-                """
-                UPDATE requests
-                SET cached_tokens = ?, cache_type = ?
-                WHERE id = ?
-                """,
-                (cached_tokens, cache_type, request_id),
-            )
+            if prompt_tokens is not None and prompt_tokens > 0:
+                effective_opt = max(prompt_tokens, cached_tokens)
+                conn.execute(
+                    """
+                    UPDATE requests
+                    SET cached_tokens = ?,
+                        cache_type = ?,
+                        optimized_tokens = ?,
+                        raw_tokens = MAX(raw_tokens, ?),
+                        saved_tokens = MAX(0, MAX(raw_tokens, ?) - ?),
+                        saved_ratio = ROUND((MAX(0, MAX(raw_tokens, ?) - ?) * 100.0) / MAX(1, MAX(raw_tokens, ?)), 2)
+                    WHERE id = ?
+                    """,
+                    (cached_tokens, cache_type, effective_opt, effective_opt, effective_opt, effective_opt, effective_opt, effective_opt, effective_opt, request_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE requests
+                    SET cached_tokens = ?,
+                        cache_type = ?,
+                        optimized_tokens = MAX(optimized_tokens, ?),
+                        raw_tokens = MAX(raw_tokens, ?)
+                    WHERE id = ?
+                    """,
+                    (cached_tokens, cache_type, cached_tokens, cached_tokens, request_id),
+                )
             conn.commit()
 
     def get_summary(self, project_name: Optional[str] = None) -> Dict[str, Any]:

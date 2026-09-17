@@ -17,12 +17,16 @@ class CompressionPipeline:
         from ctxguard.core.compressors.ansi_cleaner import ANSICleaner
         from ctxguard.core.compressors.progress_merger import ProgressMerger
         from ctxguard.core.compressors.stacktrace import StacktraceFolder
+        from ctxguard.core.compressors.log_truncator import LogTruncator
+        from ctxguard.core.compressors.secret_redactor import SecretRedactor
         from ctxguard.core.compressors.json_struct import JSONStructCompressor
         from ctxguard.core.compressors.whitespace import WhitespaceCleaner
         from ctxguard.core.compressors.dedup import DedupCompressor
         from ctxguard.core.compressors.ast_code import ASTCodeCompressor
         from ctxguard.core.compressors.git_diff import GitDiffCompressor
+        from ctxguard.core.compressors.tool_delta import ToolDeltaCompressor
         from ctxguard.core.guards.cache_guard import CacheGuard
+        from ctxguard.core.guards.thinking_manager import ThinkingManager
         from ctxguard.core.guards.output_shaper import OutputShaper
         from ctxguard.core.guards.tools_normalizer import ToolsNormalizer
         from ctxguard.core.adaptive_scheduler import AdaptiveScheduler
@@ -33,6 +37,7 @@ class CompressionPipeline:
         self.config = config
         self.fingerprint_repo = fingerprint_repo
         self.cache_guard = CacheGuard(config.cache_guard)
+        self.thinking_manager = ThinkingManager(getattr(config, "thinking_manager", None) or getattr(config, "thinking_manager", None))
         shaper_cfg = getattr(config, "output_shaper", None)
         shaper_level = getattr(shaper_cfg, "level", 2) if shaper_cfg else 2
         self.output_shaping_enabled = getattr(shaper_cfg, "enabled", False) if shaper_cfg else False
@@ -40,6 +45,15 @@ class CompressionPipeline:
         self.tools_normalizer = ToolsNormalizer()
         self.adaptive_scheduler = AdaptiveScheduler(config.adaptive_pipeline)
         self.virtual_tool_injector = VirtualToolInjector(config.dedup.tool_injection)
+        self.secret_redactor = SecretRedactor(config.structural_compression.secret_redactor)
+        self.tool_delta_compressor = ToolDeltaCompressor(
+            config.structural_compression.tool_delta,
+            fingerprint_repo=fingerprint_repo
+        )
+        self.log_truncator = LogTruncator(
+            config.structural_compression.log_cleaner,
+            fingerprint_repo=fingerprint_repo
+        )
         self.git_diff_compressor = GitDiffCompressor(
             config.structural_compression.git_diff,
             fingerprint_repo=fingerprint_repo
@@ -55,9 +69,12 @@ class CompressionPipeline:
 
         # Standard rule-based compressors in order
         self.compressors: List[BaseCompressor] = [
+            self.secret_redactor,
+            self.tool_delta_compressor,
             self.git_diff_compressor,
             self.dedup_compressor,
             self.ast_compressor,
+            self.log_truncator,
             ANSICleaner(config.structural_compression.log_cleaner),
             ProgressMerger(config.structural_compression.log_cleaner),
             StacktraceFolder(config.structural_compression.log_cleaner),
@@ -118,6 +135,16 @@ class CompressionPipeline:
         # 3. Run pre_compress hooks
         for hook in self._hooks["pre_compress"]:
             context = hook(context)
+
+        # 3.1 Manage thinking/reasoning tokens across multi-turn sessions
+        if self.thinking_manager:
+            reclaimed = self.thinking_manager.manage_thinking_tokens(
+                request,
+                provider=provider,
+                was_cold=bool(idle_seconds > self.cache_guard.config.cache_ttl_seconds)
+            )
+            if reclaimed > 0 and "thinking_manager" not in context.applied_compressors:
+                context.applied_compressors.append("thinking_manager")
 
         # 4. Partition messages via CacheGuard with dynamic token bound & cold recompact
         frozen_prefix, compressible_suffix, was_cold = self.cache_guard.partition_messages(

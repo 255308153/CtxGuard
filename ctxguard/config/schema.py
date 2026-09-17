@@ -73,7 +73,25 @@ class LogCleanerConfig:
     merge_progress_bars: bool = True
     fold_repeated_stacktraces: bool = True
     stacktrace_threshold: int = 3
+    max_log_lines: int = 120
+    head_lines: int = 25
+    tail_lines: int = 75
     custom_patterns: List[Dict[str, str]] = field(default_factory=list)
+
+
+@dataclass
+class SecretRedactorConfig:
+    enabled: bool = True
+    mask_token: str = "<REDACTED_SECRET>"
+    custom_patterns: List[str] = field(default_factory=list)
+
+
+@dataclass
+class ThinkingManagerConfig:
+    enabled: bool = True
+    strip_deepseek_reasoning: bool = True
+    strip_gemini_thought: bool = True
+    anthropic_max_thinking_tokens: int = 16384
 
 
 @dataclass
@@ -101,11 +119,21 @@ class GitDiffCompressorConfig:
 
 
 @dataclass
+class ToolDeltaConfig:
+    enabled: bool = True
+    min_items: int = 15
+    max_delta_ratio: float = 0.35
+    max_delta_items: int = 20
+
+
+@dataclass
 class StructuralCompressionConfig:
     log_cleaner: LogCleanerConfig = field(default_factory=LogCleanerConfig)
     json_compressor: JSONCompressorConfig = field(default_factory=JSONCompressorConfig)
     ast_compressor: ASTCodeCompressorConfig = field(default_factory=ASTCodeCompressorConfig)
     git_diff: GitDiffCompressorConfig = field(default_factory=GitDiffCompressorConfig)
+    secret_redactor: SecretRedactorConfig = field(default_factory=SecretRedactorConfig)
+    tool_delta: ToolDeltaConfig = field(default_factory=ToolDeltaConfig)
 
 
 @dataclass
@@ -204,6 +232,7 @@ class AppConfig:
     structural_compression: StructuralCompressionConfig = field(default_factory=StructuralCompressionConfig)
     adaptive_pipeline: AdaptivePipelineConfig = field(default_factory=AdaptivePipelineConfig)
     cache_guard: CacheGuardConfig = field(default_factory=CacheGuardConfig)
+    thinking_manager: ThinkingManagerConfig = field(default_factory=ThinkingManagerConfig)
     learn: LearnConfig = field(default_factory=LearnConfig)
     semantic_cache: SemanticCacheConfig = field(default_factory=SemanticCacheConfig)
     piggyback_extraction: PiggybackExtractionConfig = field(default_factory=PiggybackExtractionConfig)

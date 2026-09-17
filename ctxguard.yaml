@@ -48,6 +48,9 @@ structural_compression:
     merge_progress_bars: true
     fold_repeated_stacktraces: true
     stacktrace_threshold: 3
+    max_log_lines: 120
+    head_lines: 25
+    tail_lines: 75
 
   json_compressor:
     enabled: true
@@ -65,6 +68,22 @@ structural_compression:
     min_lines: 15
     max_context_lines: 1
 
+  secret_redactor:
+    enabled: true
+    mask_token: "<REDACTED_SECRET>"
+
+  tool_delta:
+    enabled: true
+    min_items: 15
+    max_delta_ratio: 0.35
+    max_delta_items: 20
+
+thinking_manager:
+  enabled: true
+  strip_deepseek_reasoning: true
+  strip_gemini_thought: true
+  anthropic_max_thinking_tokens: 16384
+
 adaptive_pipeline:
   enabled: true
   levels:
@@ -74,12 +93,12 @@ adaptive_pipeline:
       prune_ratio: 1.0
     - name: "level_2"
       max_tokens: 65536
-      compression_mode: "lightweight"
-      prune_ratio: 0.85
+      compression_mode: "lossless"
+      prune_ratio: 1.0
     - name: "level_3"
       max_tokens: 200000
-      compression_mode: "deep"
-      prune_ratio: 0.60
+      compression_mode: "lossless"
+      prune_ratio: 1.0
       use_onnx: false
   protected_keywords:
     - "CRITICAL"

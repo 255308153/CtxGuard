@@ -140,19 +140,24 @@ def extract_session_and_project(request: Request, norm_req: NormalizedRequest) -
     return session_id, project_name, prompt_preview
 
 
-def parse_cache_stats(resp_content: bytes, protocol: str = "openai") -> tuple[int, str]:
-    """Parse cached tokens and cache provider type from upstream response JSON."""
+def parse_cache_stats(resp_content: bytes, protocol: str = "openai") -> tuple[int, str, Optional[int]]:
+    """Parse cached tokens, cache provider type, and total prompt tokens from upstream response JSON."""
     try:
         data = orjson.loads(resp_content)
     except Exception:
-        return 0, "none"
+        return 0, "none", None
 
     cached_tokens = 0
     cache_type = "none"
+    prompt_tokens = None
 
     if isinstance(data, dict):
         usage = data.get("usage")
         if isinstance(usage, dict):
+            p_tok = usage.get("prompt_tokens") or usage.get("input_tokens")
+            if p_tok is not None:
+                prompt_tokens = int(p_tok)
+
             # 1. DeepSeek: prompt_cache_hit_tokens
             if "prompt_cache_hit_tokens" in usage:
                 val = usage.get("prompt_cache_hit_tokens") or 0
@@ -166,6 +171,8 @@ def parse_cache_stats(resp_content: bytes, protocol: str = "openai") -> tuple[in
                 if val > 0:
                     cached_tokens = val
                     cache_type = "anthropic_cache"
+                if prompt_tokens is not None:
+                    prompt_tokens += val + (usage.get("cache_creation_input_tokens") or 0)
 
             # 3. OpenAI / Gemini OpenAI-compatible: prompt_tokens_details.cached_tokens
             if cached_tokens == 0:
@@ -183,14 +190,20 @@ def parse_cache_stats(resp_content: bytes, protocol: str = "openai") -> tuple[in
                     cached_tokens = val
                     cache_type = "gemini_cache"
 
-        # 5. Gemini native API format: usageMetadata.cachedContentTokenCount
-        if cached_tokens == 0 and isinstance(data.get("usageMetadata"), dict):
-            val = data["usageMetadata"].get("cachedContentTokenCount") or 0
-            if val > 0:
-                cached_tokens = val
-                cache_type = "gemini_cache"
+        # 5. Gemini native API format: usageMetadata
+        usage_meta = data.get("usageMetadata")
+        if isinstance(usage_meta, dict):
+            if prompt_tokens is None:
+                g_p = usage_meta.get("promptTokenCount") or usage_meta.get("prompt_token_count")
+                if g_p is not None:
+                    prompt_tokens = int(g_p)
+            if cached_tokens == 0:
+                val = usage_meta.get("cachedContentTokenCount") or 0
+                if val > 0:
+                    cached_tokens = val
+                    cache_type = "gemini_cache"
 
-    return cached_tokens, cache_type
+    return cached_tokens, cache_type, prompt_tokens
 
 
 def create_router(
@@ -928,9 +941,9 @@ def create_router(
                     prompt_preview=prompt_preview,
                 )
 
-            def on_openai_stream_complete(cached_toks: int, c_type: str):
-                if req_id and stats_repo and cached_toks > 0:
-                    stats_repo.update_cache_stats(req_id, cached_toks, c_type)
+            def on_openai_stream_complete(cached_toks: int, c_type: str, prompt_toks: Optional[int] = None):
+                if req_id and stats_repo and (cached_toks > 0 or (prompt_toks and prompt_toks > 0)):
+                    stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
                 if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
                     pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
                 session_last_activity[session_id] = time.time()
@@ -957,14 +970,16 @@ def create_router(
                     client=project_name,
                     source="proxy_pipeline",
                 )
-            cached_toks, c_type = parse_cache_stats(resp.content, protocol="openai")
+            cached_toks, c_type, prompt_toks = parse_cache_stats(resp.content, protocol="openai")
+            effective_opt = max(prompt_toks, cached_toks) if prompt_toks else req_ctx.optimized_tokens
+            effective_raw = max(req_ctx.original_tokens, effective_opt)
             if stats_repo:
                 stats_repo.record_request(
                     session_id=session_id,
                     protocol="openai",
                     model=norm_req.model,
-                    raw_tokens=req_ctx.original_tokens,
-                    optimized_tokens=req_ctx.optimized_tokens,
+                    raw_tokens=effective_raw,
+                    optimized_tokens=effective_opt,
                     latency_ms=duration_ms,
                     applied_compressors=req_ctx.applied_compressors,
                     project_name=project_name,
@@ -1358,9 +1373,9 @@ def create_router(
                     prompt_preview=prompt_preview,
                 )
 
-            def on_anthropic_stream_complete(cached_toks: int, c_type: str):
-                if req_id and stats_repo and cached_toks > 0:
-                    stats_repo.update_cache_stats(req_id, cached_toks, c_type)
+            def on_anthropic_stream_complete(cached_toks: int, c_type: str, prompt_toks: Optional[int] = None):
+                if req_id and stats_repo and (cached_toks > 0 or (prompt_toks and prompt_toks > 0)):
+                    stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
                 if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
                     pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
                 session_last_activity[session_id] = time.time()
@@ -1387,14 +1402,16 @@ def create_router(
                     client=project_name,
                     source="proxy_pipeline",
                 )
-            cached_toks, c_type = parse_cache_stats(resp.content, protocol="anthropic")
+            cached_toks, c_type, prompt_toks = parse_cache_stats(resp.content, protocol="anthropic")
+            effective_opt = max(prompt_toks, cached_toks) if prompt_toks else req_ctx.optimized_tokens
+            effective_raw = max(req_ctx.original_tokens, effective_opt)
             if stats_repo:
                 stats_repo.record_request(
                     session_id=session_id,
                     protocol="anthropic",
                     model=norm_req.model,
-                    raw_tokens=req_ctx.original_tokens,
-                    optimized_tokens=req_ctx.optimized_tokens,
+                    raw_tokens=effective_raw,
+                    optimized_tokens=effective_opt,
                     latency_ms=duration_ms,
                     applied_compressors=req_ctx.applied_compressors,
                     project_name=project_name,
