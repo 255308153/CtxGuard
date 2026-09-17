@@ -4,7 +4,7 @@ CtxGuard 是一个运行在本地的**智能上下文治理与 Prompt Cache 防�
 
 ---
 
-## 🚀 核心架构与请求流向
+## 核心架构与请求流向
 
 ```text
 ┌──────────────────────────┐
@@ -25,7 +25,7 @@ CtxGuard 是一个运行在本地的**智能上下文治理与 Prompt Cache 防�
 
 ---
 
-## 🛠️ 第一步：配置上游服务地址 (`ctxguard.yaml`)
+## 第一步：配置上游服务地址 (`ctxguard.yaml`)
 
 打开项目根目录下的 `ctxguard.yaml`，配置你要转发的真实模型服务商或中转站地址：
 
@@ -55,7 +55,7 @@ upstream:
 
 ---
 
-## ⚡ 第二步：启动 CtxGuard 网关服务
+## 第二步：启动 CtxGuard 网关服务
 
 在终端中执行以下命令启动本地网关：
 
@@ -69,7 +69,7 @@ python3 -m ctxguard.cli.main start --port 8787
 
 ---
 
-## 💻 第三步：客户端一键接入
+## 第三步：客户端一键接入
 
 ### 场景 1：终端类 Agent (Claude Code / Pi Agent)
 在当前终端执行一键环境注入：
@@ -86,7 +86,7 @@ eval $(python3 -m ctxguard.cli.main env --eval)
 
 ---
 
-## 📊 常用 CLI 运维命令
+## 常用 CLI 运维命令
 
 ```bash
 # 查看实时优化看板与最近请求流水

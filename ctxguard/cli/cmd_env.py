@@ -10,11 +10,11 @@ def execute_env(args: argparse.Namespace) -> None:
     auto_patch = getattr(args, "patch", False)
 
     if auto_patch:
-        Console.info("🔍 Auto-detecting and patching local agent config files...")
+        Console.info("Auto-detecting and patching local agent config files...")
         discovered = AgentConfigAutoDetector.discover_and_save_upstreams()
         for k, v in discovered.items():
             Console.success(f"Remembered original upstream for {k}: {v}")
-        Console.success("✅ All local agent configs smoothly pointed to CtxGuard!")
+        Console.success("All local agent configs smoothly pointed to CtxGuard!")
         return
 
     # Normal output

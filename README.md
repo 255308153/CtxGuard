@@ -1,4 +1,4 @@
-# 🛡️ CtxGuard
+# CtxGuard
 
 <div align="center">
 
@@ -15,7 +15,7 @@
 
 ---
 
-## 📖 项目简介
+## 项目简介
 
 在现代 AI Agent（如 Claude Code、Cursor、Pi Agent）的复杂编码与长链路自动化任务中，随着工具调用的频繁执行，请求上下文呈现指数级膨胀：大段未修改的代码差异、冗长的构建日志和重复堆栈迅速消耗宝贵的上下文窗口，并产生高昂的 Token 费用；与此同时，客户端工具定义的无序序列化与动态提示词拼接极易引发服务商前缀缓存（Prompt Cache）频繁失效。
 
@@ -23,7 +23,7 @@
 
 ---
 
-## 🖥️ 控制面板预览 (Web Dashboard)
+## 控制面板预览 (Web Dashboard)
 
 CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://127.0.0.1:8787/dashboard`），用于直观监控全局 Token 流向、会话压缩曲线、知识图谱与自动演进的规则库：
 
@@ -37,7 +37,7 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 
 ---
 
-## 🏛️ 系统架构 (System Architecture)
+## 系统架构 (System Architecture)
 
 <div align="center">
 
@@ -49,7 +49,7 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 
 ---
 
-## 💡 核心设计与技术实现
+## 核心设计与技术实现
 
 ### 1. 物理级前缀防抖与缓存保活
 - **二进制切片透传**：对多轮对话中未发生变更的历史消息，跳过 Python 运行时的反序列化与字典重构，直接提取并转发原始 HTTP 请求的底层二进制切片，从根本上杜绝空格、换行符及浮点格式漂移。
@@ -80,17 +80,17 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 - **中文自然语言理解增强**：针对中文开发者的常用习惯短语与口语化偏好进行分词与谓词识别，过滤无效疑问句与停用词。
 
 ### 6. 失败模式自主学习与规则生命周期治理
-- **转折点（Pivot）因果归因**：后台异步扫描交互轨迹，定位“工具连续报错 ➜ 调整参数 ➜ 执行成功”的关键行为序列，自动提取路径修正与环境运行规范。
+- **转折点（Pivot）因果归因**：后台异步扫描交互轨迹，定位“工具连续报错 -> 调整参数 -> 执行成功”的关键行为序列，自动提取路径修正与环境运行规范。
 - **规则去重与容量硬上限**：对同类触发条件的旧规则执行自动版本替换，并设立严格的数量上限（默认 10 条），淘汰低频规则以防止规则库过度膨胀。
 - **原子标记区域同步**：通过专用的注释边界标记，将提炼后的最佳实践以原子覆盖方式写入项目配置文件，绝不覆盖用户手动编写的配置内容。
 
-### 6. 输出端 Token 抑制与思考预算动态调度
+### 7. 输出端 Token 抑制与思考预算动态调度
 - **响应风格确定性引导**：在请求末尾追加字节稳定的格式约定，指导大模型精简无意义的寒暄、前置铺垫以及对上下文已有代码的重复打印。
 - **交互状态感知降级**：通过状态机区分机械操作轮次（如文件内容回传）与复杂逻辑分析轮次，在过渡阶段适度下调思考开销，进一步降低响应延迟与生成成本。
 
 ---
 
-## 🚀 快速上手
+## 快速上手
 
 ### 环境准备与安装
 
@@ -116,14 +116,14 @@ ctxguard start --port 8787
 
 ### 2. 客户端生态接入
 
-#### 方式一：Wrap 一键直接拉起 Agent（最推荐，零配置）
+#### 方式一：Wrap 一键直接拉起 Agent（推荐，零配置）
 ```bash
 # 自动在后台启动网关、自动感知原有中转地址并直接进入 Agent 终端：
 ctxguard wrap claude        # 一键启动 Claude Code
 ctxguard wrap pi            # 一键启动 Pi Agent
 ctxguard wrap aider         # 一键启动 Aider
 ```
-> **💡 Wrap 运行原理与底层工作流**：
+> **Wrap 运行原理与底层工作流**：
 > 1. **网关自愈探测**：自动检测 `8787` 端口是否存活，若未启动则毫秒级在后台自动静默拉起 Proxy 网关。
 > 2. **上游配置自动感知 (Auto-Discovery)**：自动读取 `~/.claude/settings.json` 或 Pi 等配置文件中原本保存的真实中转站 API 地址与 Key，并在网关中建立专用映射。
 > 3. **进程级隔离注入 (Isolated Spawning)**：在内存中为即将拉起的 Agent 子进程独立注入 `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`，**完全不污染操作系统的全局环境**。
@@ -152,7 +152,7 @@ ctxguard env --patch
 
 ---
 
-## 📈 基准测试与生产实测数据
+## 基准测试与生产实测数据
 
 ### 1. 标准基准测试 (Synthetic Benchmarks)
 
@@ -181,36 +181,36 @@ ctxguard env --patch
 
 ---
 
-## ⚙️ 模块开关与高级配置 (ctxguard.yaml)
+## 模块开关与高级配置 (ctxguard.yaml)
 
 CtxGuard 各核心引擎支持在 `ctxguard.yaml` 中进行细粒度的独立开关控制：
 
 ```yaml
-# 🧠 1. 记忆图谱与偏好召回开关 (Memory & Piggyback Extraction)
+# 1. 记忆图谱与偏好召回开关 (Memory & Piggyback Extraction)
 piggyback_extraction:
   enabled: true       # 设为 false 则关闭偏好记忆提取与上下文动态注入
 
-# 🛡️ 2. 自进化与规则同步开关 (Autonomous Learning & Rule Sync)
+# 2. 自进化与规则同步开关 (Autonomous Learning & Rule Sync)
 learn:
   enabled: true       # 设为 false 则停止死循环扫描与项目规则文件自动修改
   detect_loop_threshold: 3
 
-# ✂️ 3. 输出端 Token 塑造与降噪 (Output Shaper)
+# 3. 输出端 Token 塑造与降噪 (Output Shaper)
 output_shaper:
   enabled: false      # 设为 true 开启输出端客套话修剪与思考预算动态降级
   level: 2            # 1: 轻度精简 | 2: 推荐标准 | 3: 高度精炼 | 4: 极限代码
 
-# 🎚️ 4. 自适应调度与三级动态档位 (Adaptive Pipeline)
+# 4. 自适应调度与三级动态档位 (Adaptive Pipeline)
 adaptive_pipeline:
   enabled: true       # 设为 false 则始终使用纯无损基础压缩
   levels:
-    - name: "level_1" # 🟢 档位 1 (< 128k Tokens): 纯无损结构压缩 (ANSI/GitDiff/Progress)
+    - name: "level_1" # 档位 1 (< 128k Tokens): 纯无损结构压缩 (ANSI/GitDiff/Progress)
       max_tokens: 131072
       compression_mode: "lossless"
-    - name: "level_2" # 🟡 档位 2 (128k ~ 512k Tokens): 轻量 AST 骨架提取与堆栈剪枝
+    - name: "level_2" # 档位 2 (128k ~ 512k Tokens): 轻量 AST 骨架提取与堆栈剪枝
       max_tokens: 524288
       compression_mode: "lightweight"
-    - name: "level_3" # 🔴 档位 3 (512k ~ 2M+ Tokens): 深度修剪与激进语义去重 (超长防爆档)
+    - name: "level_3" # 档位 3 (512k ~ 2M+ Tokens): 深度修剪与激进语义去重 (超长防爆档)
       max_tokens: 2097152
       compression_mode: "deep"
   protected_keywords: ["CRITICAL", "FATAL", "TODO", "FIXME", "EXCEPTION"]
@@ -218,7 +218,7 @@ adaptive_pipeline:
 
 ---
 
-## 🛠️ CLI 命令速查
+## CLI 命令速查
 
 ```bash
 ctxguard wrap <agent>     # 自动感知中转配置并直接一键拉起目标 Agent (claude/pi/aider)
@@ -231,6 +231,7 @@ ctxguard env              # 查看或导出各客户端的环境变量配置
 
 ---
 
-## 📄 开源许可证
+## 开源许可证
 
 本项目基于 [MIT License](LICENSE) 许可证开源发布。
+

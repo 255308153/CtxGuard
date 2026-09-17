@@ -8,7 +8,7 @@ from ctxguard.core.context import RequestContext, Message
 from ctxguard.plugins.onnx.tokenizer import FastTokenizer
 from ctxguard.plugins.onnx.model_loader import ONNXModelLoader
 
-# 🛡️ Step 1: Headroom Must-Keep Pinning Regex Pattern
+# Step 1: Headroom Must-Keep Pinning Regex Pattern
 # Numbers, hex addresses, file paths, extensions, flags, CamelCase classes,
 # and critical negation/directive words that must NEVER be model-dropped.
 MUST_KEEP_RE = re.compile(
