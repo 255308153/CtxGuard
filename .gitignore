@@ -83,6 +83,17 @@ sqlite:
 # Exclude internal/personal docs
 docs/
 
-# External reference clones (keep only references/README.md)
-references/*/
-!references/README.md
+# External reference clones
+references/
+
+# Tests & benchmarks (development only)
+tests/
+benchmarks/
+
+# Agent rules & dev-only docs
+.cursorrules
+.windsurfrules
+.pi/
+AGENTS.md
+DESIGN.md
+DEVELOPMENT_GUIDE.md
