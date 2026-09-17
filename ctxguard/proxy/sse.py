@@ -79,6 +79,7 @@ class SSEStreamHandler:
             "item_id": f"item_{uuid.uuid4().hex[:16]}",
             "full_text": "",
         }
+        pending = b""
 
         try:
             async for chunk in byte_stream:
@@ -86,8 +87,13 @@ class SSEStreamHandler:
                     continue
 
                 if convert_to_responses:
-                    # Convert OpenAI chat.completion chunks to OpenAI Codex/Realtime responses stream
-                    events = cls._transpile_chat_chunk_to_responses(chunk, state)
+                    # SSE 事件可能跨越多个网络分块，必须按完整事件组装后再解析。
+                    pending += chunk
+                    frames = pending.split(b"\n\n")
+                    pending = frames.pop()
+                    events = []
+                    for frame in frames:
+                        events.extend(cls._transpile_chat_chunk_to_responses(frame + b"\n\n", state))
                     for ev in events:
                         yield ev
                 else:
@@ -103,6 +109,9 @@ class SSEStreamHandler:
                     if cached_tokens > 0:
                         cached_tokens_total = cached_tokens
 
+            if convert_to_responses and pending.strip():
+                for ev in cls._transpile_chat_chunk_to_responses(pending, state):
+                    yield ev
         finally:
             if convert_to_responses and not state.get("completed_sent"):
                 # Safety fallback: ensure response.completed is always sent even on abrupt finish
@@ -139,6 +148,20 @@ class SSEStreamHandler:
         text = chunk_bytes.decode("utf-8", errors="ignore")
         lines = text.split("\n")
         out_events: list[bytes] = []
+
+        # 原生 Responses API 流无需转换，完整保留中转站的事件名称与扩展字段。
+        for line in lines:
+            line_clean = line.strip()
+            if not line_clean.startswith("data:"):
+                continue
+            try:
+                payload = orjson.loads(line_clean[5:].strip())
+            except Exception:
+                continue
+            if isinstance(payload, dict) and str(payload.get("type", "")).startswith("response."):
+                if payload.get("type") == "response.completed":
+                    state["completed_sent"] = True
+                return [chunk_bytes]
 
         for line in lines:
             line_clean = line.strip()
