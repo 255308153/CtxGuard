@@ -51,6 +51,7 @@ htmlcov/
 *.db-journal
 *.db-wal
 .ctxguard/
+:memory:
 
 # IDE & OS files
 .DS_Store
