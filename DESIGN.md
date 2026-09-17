@@ -256,7 +256,7 @@ ctxguard = "ctxguard.cli:main"
 
 ## 八、 实施与演进路线图（Roadmap）
 
-> 完整、细粒度模块拆分与接口协议定义请参阅专门文档：[DEVELOPMENT_PLAN.md](file:///Users/lqc/Downloads/CtxGuard/DEVELOPMENT_PLAN.md)。
+> 完整、细粒度模块拆分与开发者扩展规范请参阅专门文档：[DEVELOPMENT_GUIDE.md](file:///Users/lqc/Downloads/CtxGuard/DEVELOPMENT_GUIDE.md)。
 
 ### 阶段一：MVP 核心网关与纯规则无损压缩（1~2 周）
 1. 搭建 FastAPI + httpx 透明反向代理，打通 OpenAI/Anthropic 协议双向流式转发；
