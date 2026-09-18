@@ -69,8 +69,8 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 - **智能滑动窗口**：保留**头部 25 行**（环境参数、版本信息、启动配置）与**尾部 75 行**（核心报错堆栈、Assertion 失败与退出代码），中间部分折叠存入指纹池（Token 消耗降低 80%+）。
 - **ANSI 控制码清洗与进度条合并**：正则消除 ANSI 颜色代码；对包管理工具连续打印的百分比进度条进行帧合并，仅保留最终完成状态。
 
-### 5. 跨轮次思考链神圣透传与对齐 Headroom 架构 (ThinkingManager)
-- **思考块神圣透传（Passthrough-only）**：严格对齐 Headroom 核心铁律（Invariant I8），对 Assistant 思考链（Claude `thinking` + `signature`、Gemini `<thought>`、DeepSeek `<think>`）默认实施 100% 绝对透传保真。
+### 5. 跨轮次思考链神圣透传架构 (ThinkingManager)
+- **思考块神圣透传（Passthrough-only）**：对 Assistant 思考链（Claude `thinking` + `signature`、Gemini `<thought>`、DeepSeek `<think>`）默认实施 100% 绝对透传保真。
 - **0 签名报错与 100% 缓存对齐**：彻底杜绝修改思考内容引发的 Anthropic 400 签名崩溃，确保 Google Gemini / DeepSeek 的 KV-Cache 字节级无缝对齐，保障 Agent 长期推演认知连贯性。
 - **冷热双态生命周期**：在热会话期间锁定已缓存前缀；仅在闲置超时（`was_cold=True`）且显式配置时才执行全量基线重塑。
 
@@ -79,7 +79,7 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 - **私钥与证书保护**：PEM 私钥证书（`-----BEGIN PRIVATE KEY-----`）与包含密码的数据库连接字符串（`postgres://user:password@host:5432/db`）自动打码，杜绝凭据外泄风险。
 
 ### 7. 可逆内容指纹池与自闭环响应拦截 (Dedup, LRU & CCR Loop)
-- **网关层自闭环响应拦截 (Headroom-Aligned CCR Loop)**：借鉴 Headroom 响应处理机制，在网关层截断拦截云端大模型发出的 `tool_calls: ctx_expand`。网关本地 0.1ms 提取原文并自动在后台发起第 2 轮续写（Continuation Request），向下游客户端（Cline, RooCode, Claude Code, Cursor）彻底屏蔽虚拟工具调用过程，100% 杜绝 `Tool not found` 崩溃，真正实现无感可逆。
+- **网关层自闭环响应拦截 (CCR Loop)**：在网关层截断拦截云端大模型发出的 `tool_calls: ctx_expand`。网关本地 0.1ms 提取原文并自动在后台发起第 2 轮续写（Continuation Request），向下游客户端（Cline, RooCode, Claude Code, Cursor）彻底屏蔽虚拟工具调用过程，100% 杜绝 `Tool not found` 崩溃，真正实现无感可逆。
 - **单会话去重铁律与零跨会话致盲**：内容去重严格锁定在单会话内（`Storage Invariant 2`），新会话首读文件 100% 全量放行，彻底消除新会话“两眼一抹黑”的致盲隐患；SQLite 全局指纹库专注扮演 CAS（内容寻址存储）永久还原底座。
 - **纯净占位符清洗 (No-Deception Placeholder)**：禁用工具注入时，全面清洗所有压缩模块的折叠占位符，严禁输出任何 `Use ctx_expand` 诱导信息，杜绝欺骗大模型。
 - **纯内存热 LRU 纳秒级检索**：基于 10,000 容量的内存 `OrderedDict` 维护热点指纹索引，读路径 100% 内存 O(1) 命中，杜绝频繁磁盘 I/O 与 SSD 写入磨损；结合批量惰性持久化削减 99% 以上磁盘事务提交。
@@ -87,7 +87,7 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 - **主动感知回填 (Proactive Context Expansion)**：结合 `ContextTracker` 7 重防御体系，在用户提问前置自适应识别并回填关键上下文，防范 Prompt 膨胀；严格限制仅在活区（Live Zone）末尾追加，绝不篡改历史前缀，完美守护云端 KV Cache 90%+ 稳定命中率。
 
 ### 8. 时序知识图谱与多 Agent 插件化自进化学习引擎 (Memory & Learn)
-- **跨 Agent 生态插件化扫描体系**：借鉴 Headroom 架构，全面解耦为插件体系（`ClaudePlugin`、`CtxGuardGatewayPlugin`、`GeminiPlugin`、`CodexPlugin`）。不仅能离线扫描 Claude Code、Gemini CLI、Codex 等外部工具轨迹，更能将 CtxGuard 自身网关实时中转的多 Agent 请求直接接入分析。
+- **跨 Agent 生态插件化扫描体系**：全面解耦为插件体系（`ClaudePlugin`、`CtxGuardGatewayPlugin`、`GeminiPlugin`、`CodexPlugin`）。不仅能离线扫描 Claude Code、Gemini CLI、Codex 等外部工具轨迹，更能将 CtxGuard 自身网关实时中转的多 Agent 请求直接接入分析。
 - **三级自适应推理分析器 (3-Tier Analyzer)**：
   - **Tier 1 (LLM 语义分析)**：通过 LiteLLM / 目标大模型执行因果归因与规则精准提炼；
   - **Tier 2 (本地 CLI 免 Key 模式)**：自动检测并调用宿主机已安装的 `claude -p` / `gemini -p` / `codex exec` 命令行，直接复用终端现有订阅权限，无需额外配置昂贵 API Key；

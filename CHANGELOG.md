@@ -10,8 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.6] - 2026-09-18
 
 ### Added
-- **虚拟工具网关层自闭环拦截与递归续写 (Headroom-Aligned CCR Response Interception Engine)**:
-  - 借鉴 Headroom `CCRResponseHandler`，新增 `VirtualToolResponseHandler` 与 `StreamingVirtualToolHandler`（位于 `ctxguard/proxy/virtual_tool_handler.py`）；
+- **虚拟工具网关层自闭环拦截与递归续写 (CCR Response Interception Engine)**:
+  - 新增 `VirtualToolResponseHandler` 与 `StreamingVirtualToolHandler`（位于 `ctxguard/proxy/virtual_tool_handler.py`）；
   - 在网关响应拦截层截断拦截大模型发出的 `tool_calls: ctx_expand` / `tool_use: ctx_expand`（原生支持 OpenAI 与 Anthropic 协议）；
   - 网关本地直接从 `FingerprintRepository` 毫秒级提取原文（0 API Tokens，0.1ms），并在后台自动发起第 2 轮续写请求（Continuation Request，最大 3 轮深度熔断保护）；
   - 对下游客户端（Cline, RooCode, Claude Code, Cursor, Codex 等）彻底屏蔽虚拟工具调用过程，真正做到 100% 零侵入、零崩溃、无感可逆；
@@ -73,7 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ctxguard start` 新增 `-w / --workers` CLI 命令行参数，支持配置 Uvicorn 多进程 Worker 并行（例如 `ctxguard start -w 4`），突破 Python GIL 限制，充分利用多核 CPU 算力。
   - 实现 `create_app_factory()` 应用工厂，确保多 Worker 模式下 FastAPI 实例、路由与中间件安全独立初始化。
 - **纯内存热 LRU 缓存与零磁盘 I/O (In-Memory Hot Fingerprint Store)**:
-  - 参照 Headroom 内存优先架构，在 `FingerprintRepository` 中引入容量为 10,000 条的纯内存 `OrderedDict`。
+  - 采用内存优先架构，在 `FingerprintRepository` 中引入容量为 10,000 条的纯内存 `OrderedDict`。
   - 消息指纹读取与前缀命中 100% 在内存中完成纳秒级检索，彻底隔离高频读请求对底层磁盘的访问。
 - **SQLite 复合索引加速与批量惰性淘汰**:
   - 新增复合索引：`CREATE INDEX IF NOT EXISTS idx_fingerprints_lru ON fingerprints(last_accessed_at, hit_count);`，淘汰查询由全表排序变为索引范围扫描。
@@ -129,7 +129,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.1] - 2026-09-17
 
 ### Added
-- **对齐 Headroom 确定性语义精简流水线**:
+- **确定性语义精简流水线**:
   - 实现三阶精简梯级（Lossless Pinning -> Dual-Head Neural Pruning -> Exact Span Reconstruction）。
   - 引入 `_KOMPRESS_MUST_KEEP_RE` 模式匹配，增加中文否定词与核心控制动词保留策略，杜绝因语义压缩引起的逻辑反转。
 - **自适应超长上下文阶梯降级**:
