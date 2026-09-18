@@ -1220,7 +1220,7 @@ export class UserController {
 
       if (!trafficChart) {
         const ctx = canvas.getContext('2d');
-        trafficChart = new Chart(ctx, {
+        trafficChart = new window.Chart(ctx, {
           type: 'line',
           data: {
             labels: labels.length > 0 ? labels : ['Ready'],
