@@ -1187,7 +1187,7 @@ export class UserController {
 
     function updateTrafficChart(recentList) {
       if (!window.Chart) return;
-      const canvas = document.getElementById('tokenTrafficChart');
+      const canvas = document.getElementById('trafficChart');
       if (!canvas) return;
 
       populateChartSessionOptions(recentList);
@@ -1331,6 +1331,8 @@ export class UserController {
         setText('stat-raw-tokens', (summary.total_raw_tokens || 0).toLocaleString());
         setText('stat-opt-tokens', (summary.total_optimized_tokens || 0).toLocaleString());
         setText('stat-dollars-saved', `$${(summary.estimated_dollars_saved || 0).toFixed(4)}`);
+        setText('chart-peak-raw', (summary.total_raw_tokens || 0).toLocaleString());
+        setText('chart-peak-saved', (summary.total_saved_tokens || 0).toLocaleString());
         
         const hitPercent = (summary.cache_hit_percent !== undefined) ? summary.cache_hit_percent : 0;
         setText('stat-cache-hit-percent', `${hitPercent}%`);
@@ -1364,43 +1366,50 @@ export class UserController {
         const res = await fetch('/api/memory/stats');
         const mData = await res.json();
 
-        document.getElementById('stat-memory-count').innerText = (mData.total_fingerprints || 0).toLocaleString();
-        document.getElementById('stat-memory-chars').innerText = `${(mData.total_memorized_chars || 0).toLocaleString()} 字符`;
-        document.getElementById('memory-fp-count').innerText = mData.total_fingerprints || 0;
+        const countEl = document.getElementById('memory-fp-count');
+        if (countEl) countEl.innerText = mData.total_fingerprints || 0;
 
         // Render Memory Fingerprints table
         const fpTbody = document.getElementById('memory-fp-tbody');
-        const fps = mData.recent_fingerprints || [];
-        if (fps.length > 0) {
-          fpTbody.innerHTML = fps.map(f => `
-            <tr class="hover:bg-[#111111]/40">
-              <td class="p-2.5 text-purple-300 font-bold truncate max-w-[100px]" title="${f.hash_id}">#${f.hash_id.slice(0, 10)}</td>
-              <td class="p-2.5 text-gray-400 font-mono text-[11px]">${f.char_length} 字符</td>
-              <td class="p-2.5 text-gray-400 font-mono text-[11px] truncate max-w-[100px]" title="${f.session_id}">${f.session_id}</td>
-              <td class="p-2.5 text-gray-300 truncate max-w-[200px]" title="${escapeHtml(f.snippet)}">${escapeHtml(f.snippet)}</td>
-            </tr>
-          `).join('');
-        } else {
-          fpTbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-gray-500 font-sans text-xs">暂无指纹记忆，运行 Agent 读写文件后自动生成</td></tr>';
+        if (fpTbody) {
+          const fps = mData.recent_fingerprints || [];
+          if (fps.length > 0) {
+            fpTbody.innerHTML = fps.map(f => `
+              <tr class="hover:bg-[#1a1a1a]/50 border-b border-[#1c1c1c]">
+                <td class="p-2 text-purple-400 font-mono font-bold truncate max-w-[100px]" title="${f.hash_id}">#${f.hash_id.slice(0, 10)}</td>
+                <td class="p-2 text-[#888888] font-mono text-[11px]">${f.char_length} 字符</td>
+                <td class="p-2 text-[#888888] font-mono text-[11px] truncate max-w-[100px]" title="${f.session_id}">${f.session_id}</td>
+                <td class="p-2 text-[#cccccc] font-mono truncate max-w-[200px]" title="${escapeHtml(f.snippet)}">${escapeHtml(f.snippet)}</td>
+              </tr>
+            `).join('');
+          } else {
+            fpTbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-[#555555] font-mono text-xs">暂无指纹记忆，运行 Agent 读写文件后自动生成</td></tr>';
+          }
         }
 
         // Render Memory Rules
         const rulesContainer = document.getElementById('memory-rules-container');
         const rules = mData.learned_rules || [];
-        document.getElementById('memory-rule-count').innerText = rules.length;
-        if (rules.length > 0) {
-          rulesContainer.innerHTML = rules.map(r => `
-            <div class="p-3 rounded-xl bg-dark-input/80 border border-[#222222] space-y-1 text-xs">
-              <div class="flex items-center justify-between">
-                <span class="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20 font-bold text-[11px] font-mono">
-                   ${r.category}
-                </span>
-                <span class="text-[10px] text-gray-500">触发: ${r.trigger}</span>
+        const ruleCountEl = document.getElementById('memory-rule-count');
+        if (ruleCountEl) ruleCountEl.innerText = rules.length;
+
+        if (rulesContainer) {
+          if (rules.length > 0) {
+            rulesContainer.innerHTML = rules.map(r => `
+              <div class="p-2.5 rounded bg-[#161616] border border-[#222222] space-y-1 font-mono text-xs">
+                <div class="flex items-center justify-between">
+                  <span class="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold text-[10px]">
+                    ${r.category}
+                  </span>
+                  <span class="text-[10px] text-[#666666]">触发: ${r.trigger}</span>
+                </div>
+                <div class="text-[#e5e5e5] text-xs font-medium">${r.directive}</div>
+                <div class="text-[10px] text-[#666666] italic">经验来源: ${r.rationale}</div>
               </div>
-              <div class="text-gray-200 font-medium">${r.directive}</div>
-              <div class="text-[11px] text-gray-500 italic">经验来源: ${r.rationale}</div>
-            </div>
-          `).join('');
+            `).join('');
+          } else {
+            rulesContainer.innerHTML = '<div class="text-center py-6 text-xs text-[#555555] font-mono">暂无提炼规则，点击上方按钮触发自进化经验提炼</div>';
+          }
         }
       } catch (err) {
         console.error('Failed to load memory stats:', err);
@@ -2436,6 +2445,8 @@ export class UserController {
     window.addEventListener('DOMContentLoaded', () => {
       setViewMode('flat');
       refreshData();
+      refreshMemoryStats();
+      refreshGraphStats();
       initGraphCanvas();
       loadSample('code');
       updateWorldClocks();

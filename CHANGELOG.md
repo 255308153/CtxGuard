@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 彻底废除 `DedupCompressor` 跨会话全局查库去重逻辑，去重判断严格锁定在当前会话作用域；
   - 消除新会话首次读取历史已读文件被折叠为引用指针导致大模型“两眼一抹黑”的严重致盲缺陷，确保新会话首读 100% 全量放行原文；
   - 确立 SQLite 底层指纹库作为全局内容寻址（CAS）的持久还原底座定位。
+- **跨会话内容指纹库深度瘦身与全压缩器单写治理 (Storage Lean & Fold-Only Persistence)**:
+  - 修复所有 5 大压缩算子（`dedup`, `ast_code`, `git_diff`, `log_truncator`, `tool_delta`）同时写入 64-char sha 和 12-char short_sha 的“双重写入 Bug”，全面重构为仅单写 12 位 `short_sha`；
+  - 确立“仅折叠入库”铁律（Storage Invariant 3）：`dedup` 的 `index_prefix` 仅在内存字典维护 session 索引（0 磁盘 I/O），`ast_code` 与 `git_diff` 仅在成功压缩且体积变小时才写入 SQLite，严禁任何未折叠常规上下文入库；
+  - `FingerprintRepository` 默认容量上限从 10,000 降为 1,000 条，淘汰批次从 250 次缩短为 50 次，且原生支持短哈希与长哈希双向智能前缀检索；
+  - 新增 `purge_and_vacuum(keep_limit=1000)` 自动清理历史 twin 副本并执行 SQLite `VACUUM`，使现有指纹库文本从 ~48.7 MB 骤降至 0.99 MB，物理库从 88.32 MB 压缩至 21.39 MB；
+  - 在 `DedupConfig`、`loader.py`、`ctxguard.yaml` (`dedup.max_records: 1000`) 和 `server.py` 中显式暴露与注入容量参数。
 
 ---
 
