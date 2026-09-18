@@ -139,7 +139,7 @@ cache_guard:
   freeze_system_prompt: true     # 严格保卫 System Prompt 字节级绝对不变
   freeze_prefix_rounds: 2        # 严格冻结前 N 轮历史对话（保障官方 Prompt Cache 命中）
   auto_anthropic_cache_control: true # 自动为 Anthropic 协议请求在关键轮次注入 ephemeral cache 标记
-  cache_zero_recording_enabled: true # 自动记录上游报告缓存读取为 0 的轮次
+  cache_zero_recording_enabled: false # 自动记录上游报告缓存读取为 0 的轮次（调试用，默认关闭）
   cache_zero_recording_dir: ".ctxguard/cache_zero" # 缓存零诊断 JSONL 文件目录
 
 # ------------------------------------------------------------------------------

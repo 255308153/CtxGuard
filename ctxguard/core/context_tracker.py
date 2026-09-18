@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
@@ -280,7 +280,7 @@ class ContextTracker:
     def format_proactive_expansion(
         self,
         expansions: List[Dict[str, Any]],
-        workspace_name: str = "",
+        workspace_key: str = "",
         session_id: str = "",
     ) -> str:
         return ""

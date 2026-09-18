@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-205%20passed-success.svg)]()
+[![Tests](https://img.shields.io/badge/tests-224%20passed-success.svg)]()
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com)
 
 </div>
@@ -19,7 +19,7 @@
 
 在现代 AI Agent（如 Claude Code、Cursor、Pi Agent、Codex）的复杂编码与长链路自动化任务中，随着工具调用的频繁执行，请求上下文呈指数级膨胀：大段未修改的代码差异、冗长的构建日志、重复的状态探测输出以及历史思考链迅速消耗宝贵的上下文窗口，产生高昂的 Token 费用；与此同时，客户端工具定义的无序序列化与动态提示词拼接极易引发服务商前缀缓存（Prompt Cache）频繁失效。
 
-**CtxGuard** 是一套部署在客户端与大模型服务商（OpenAI、Anthropic、DeepSeek 等）之间的透明反向代理网关。它在协议中转层对出向请求实施轻量级结构化优化、语法树骨架提取与字节级防抖，在完全不损耗模型推理能力与代码逻辑的前提下，显著降低通信负载与计算开销，并为多轮会话提供自动进化的项目级经验沉淀与知识图谱记忆能力。
+**CtxGuard** 是一套部署在客户端与大模型服务商（OpenAI、Anthropic、Google Gemini、xAI Grok、DeepSeek 等）之间的透明反向代理网关。它在协议中转层对出向请求实施轻量级结构化优化、语法树骨架提取与字节级防抖，在完全不损耗模型推理能力与代码逻辑的前提下，显著降低通信负载与计算开销，并为多轮会话提供自动进化的项目级经验沉淀与知识图谱记忆能力。
 
 ---
 
@@ -27,13 +27,13 @@
 
 CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://127.0.0.1:8787/dashboard`），用于直观监控全局 Token 流向、会话压缩曲线、知识图谱与自动演进的规则库：
 
-| 实时 Token 流量趋势与多轮压缩监控 | 跨 Agent 时序知识图谱拓扑 |
+| 全局数据大盘与实时压缩曲线 | 个人记忆知识图谱与 2-hop 子图检索 |
 | :---: | :---: |
-| ![Token 流量趋势图](assets/screenshots/02-traffic-chart.png) | ![知识图谱拓扑](assets/screenshots/03-knowledge-graph.png) |
+| ![全局数据大盘与实时压缩曲线](assets/screenshots/01-dashboard-overview.png) | ![个人记忆知识图谱与 2-hop 子图检索](assets/screenshots/03-knowledge-graph.png) |
 
-| 控制面板全局数据大盘概览 | 自进化避坑经验规则库 |
+| 请求记录明细与逐轮压缩审计 | 记忆中枢与自进化经验规则库 |
 | :---: | :---: |
-| ![全局概览看板](assets/screenshots/01-dashboard-overview.png) | ![自进化经验规则库](assets/screenshots/04-learned-rules.png) |
+| ![请求记录明细与逐轮压缩审计](assets/screenshots/02-request-records.png) | ![记忆中枢与自进化经验规则库](assets/screenshots/04-learned-rules.png) |
 
 ---
 
@@ -158,7 +158,7 @@ ctxguard env --patch
 
 #### 方式四：手动配置服务端点
 在任意兼容 OpenAI 或 Anthropic 协议的工具中配置代理地址：
-- **OpenAI 兼容端点 (GPT / DeepSeek)**：`http://127.0.0.1:8787/v1`
+- **OpenAI 兼容端点 (GPT / DeepSeek / Grok)**：`http://127.0.0.1:8787/v1`
 - **Anthropic 兼容端点 (Claude Code)**：`http://127.0.0.1:8787`
 
 ---
@@ -183,12 +183,16 @@ ctxguard env --patch
 
 | 核心统计指标 | 真实生产环境统计值 | 说明 |
 | :--- | :--- | :--- |
-| **拦截处理请求总量** | **2,499 次** | 涵盖日常编码、代码审查、单元测试等真实 Agent 轨迹 |
-| **原始输入 Token 总量** | **480,922,262 Tokens** (~4.8 亿) | 未经网关优化的原始请求上下文体积 |
-| **优化后输入 Token 量** | **123,253,252 Tokens** (~1.2 亿) | 经指纹去重、Diff折叠与日志清洗后的实际入参 |
-| **累计净节省 Token** | **357,674,148 Tokens** (~3.57 亿) | 实际削减的纯有效上下文体积 |
-| **综合上下文压缩率** | **74.37%** | **平均每 1 亿 Token 上下文可压降 7,400 万+** |
-| **主流前沿模型实测** | **GPT / Claude / Gemini / DeepSeek** | 实测各主流旗舰模型均保持 **58% ~ 88%** 稳定压缩率 |
+| **拦截处理请求总量** | **10,868 次** | 涵盖日常编码、代码审查、单元测试等真实 Agent 轨迹 |
+| **累计会话数** | **153 个** | 跨 Claude Code / Cursor / Codex / Pi Agent 多客户端会话 |
+| **原始输入 Token 总量** | **1,742,154,963 Tokens** (~17.4 亿) | 未经网关优化的原始请求上下文体积 |
+| **优化后输入 Token 量** | **596,293,798 Tokens** (~5.96 亿) | 经指纹去重、Diff折叠与日志清洗后的实际入参 |
+| **累计净节省 Token** | **1,149,299,422 Tokens** (~11.5 亿) | 实际削减的纯有效上下文体积 |
+| **综合上下文压缩率** | **65.97%** | **平均每 1 亿 Token 上下文可压降 6,600 万+** |
+| **累计规避成本** | **$214.85** | 按各厂商公开输入单价折算的等效费用节省 |
+| **网关中位处理延迟** | **0.14 ms** | 纯算子流水线开销，对端到端时延无感知 |
+| **云端前缀缓存稳定性** | **100%（Immutable）** | System Prompt 与前 N 轮历史字节级绝对锁死 |
+| **主流前沿模型实测** | **GPT / Claude / Gemini / Grok / DeepSeek** | 实测各主流旗舰模型均保持 **58% ~ 88%** 稳定压缩率 |
 
 ---
 

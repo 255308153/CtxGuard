@@ -17,8 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 对下游客户端（Cline, RooCode, Claude Code, Cursor, Codex 等）彻底屏蔽虚拟工具调用过程，真正做到 100% 零侵入、零崩溃、无感可逆；
   - 实现 `RESIDUAL_CCR_SKIPPED_MIXED` 混合工具安全避让机制：当大模型同时输出客户端工具（如 `read_file`）与 `ctx_expand` 时，网关自动放行给客户端处理；
   - 实现流式前置探测（0-TTFT）：前 256 字节普通文本或 `stop` 时极速 flush 直通，首字延迟零劣化；检测到 `ctx_expand` 时无缝拦截并启动后台 continuation stream 实时转发。
+- **xAI Grok 全链路接入 (xAI Grok 4.6 Provider Support)**:
+  - `ctxguard.yaml` / `ctxguard.yaml.example` 新增 `xai` / `grok` 两个 Provider，上游指向 `https://api.x.ai/v1`，凭据读取环境变量 `XAI_API_KEY`；
+  - `router.resolve_provider()` 新增 `grok` 名称识别分支，`grok-*` 系列模型不再静默回退至 `api.anthropic.com`；
+  - `GET /v1/models` 新增暴露 `grok-4.6`（`owned_by: xai`）；
+  - 非流式 `parse_cache_stats()` 与流式 `sse.py` 同步新增 Grok / xAI / vLLM 缓存字段解析（`cache_type: grok_cache`），云端缓存命中率统计对齐；
+  - `CacheGuard` 新增 `grok` 维度的云端缓存 TTL 表项，`grok` / `xai` 模型自动匹配对应的前缀缓存过期策略；
+  - `ThinkingManager` 覆盖 Grok 3 Think 思考链生命周期，跨轮次精准修剪历史 `reasoning` 块，阻断云端推理二次计费。
+- **发布文档与物料同步 (Release Docs & Assets Refresh)**:
+  - README 更新 Dashboard 截图（全局数据大盘与实时压缩曲线、请求记录明细与逐轮压缩审计、个人记忆知识图谱与 2-hop 子图检索、记忆中枢与自进化经验规则库），刷新真实生产环境累计实测数据（10,868 请求 / 1,742,154,963 原始 Tokens / 65.97% 压缩率）与测试徽章（224 passed）；
+  - 系统架构图新增 xAI Grok 上游席位（采用官方 xAI 标志），右侧上游生态与代码侧 `xai` / `grok` Provider 完全对齐；
+  - 对齐 `tests/test_context_tracker.py` 中 3 个仍在断言“已停用的主动上下文回填”行为的陈旧用例，并修正 `ContextTracker.format_proactive_expansion` 与调用方之间 `workspace_key` 参数名漂移。
 
 ### Fixed
+- **xAI / Grok 通道 Cloudflare 400 修复 (Duplicate Authorization Header)**:
+  - 修复 `upstream.build_headers()` 在透传客户端鉴权头时，与 Provider 侧注入的 `Authorization` 并存产生重复请求头的问题；
+  - Cloudflare 边缘节点对重复 `Authorization` 直接返回 400，表现为 xAI / Grok 通道完全不可用；现改为确定性去重，保证同名头唯一。
 - **全压缩器纯净占位符清洗 (No-Deception Placeholder Cleanup)**:
   - 在 `tool_injection.enabled: false` 时，彻底清洗所有 5 个压缩模块（`tool_delta`, `git_diff`, `ast_code`, `log_truncator`, `dedup`）中的折叠占位符，严禁输出任何 `Use ctx_expand` 诱导文本，杜绝欺骗大模型。
 - **单会话指纹去重铁律与消除跨会话致盲 (Storage Invariant 2: Session-Scoped Dedup)**:
@@ -93,7 +107,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `BaseCompressor.process` 显式跳过 `system` 与 `developer` 角色消息，严格遵守 Cache Invariant 2，杜绝前缀字节偏移。
 - **官方文档中心精简与架构沉淀**:
   - 清理多余冲突目录（`docs/17-上下文模块设计/`、`面试问答/`、`docs/DEVELOPER_GUIDE.md`），规范化专栏导航与 `04b-输出Token压缩与塑造.md`。
-  - 新增踩坑 13（多 Worker 内存隔离与缓存击穿）、踩坑 14（通用算子角色守卫）以及面试 Q10、Q11 问答。
 
 ### Optimized
 - **CPU 密集流水线异步多线程卸载 (Async Pipeline Offloading)**:
