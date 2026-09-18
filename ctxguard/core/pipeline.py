@@ -263,7 +263,7 @@ class CompressionPipeline:
 
         # 4.5 Apply Proactive Expansion strictly to live zone (compressible_suffix)
         # to ensure frozen_prefix is never modified (Prompt Cache Invariant)
-        self.apply_proactive_expansion(request, target_messages=compressible_suffix)
+        # self.apply_proactive_expansion(request, target_messages=compressible_suffix)
 
         # Index historical content into dedup fingerprint store without modifying frozen prefix
         self.dedup_compressor.index_prefix(context, frozen_prefix)
