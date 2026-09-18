@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>CtxGuard Architecture Diagram</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #ffffff;
+    width: 1600px;
+    height: 960px;
+    padding: 20px 26px;
+    color: #1e293b;
+    overflow: hidden;
+  }
+
+  /* ─── HEADER ─── */
+  .header-bar {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 14px; padding-bottom: 12px;
+    border-bottom: 2px dashed #e2e8f0;
+  }
+  .logo-title-group { display: flex; align-items: center; gap: 12px; }
+  .brand-badge { background: #2563eb; color: #fff; font-size: 15px; font-weight: 900; padding: 5px 14px; border-radius: 10px; }
+  .title-text { font-size: 22px; font-weight: 900; color: #0f172a; }
+  .header-badges { display: flex; gap: 10px; }
+  .header-tag { display: flex; align-items: center; gap: 6px; padding: 5px 13px; border-radius: 20px; font-size: 11.5px; font-weight: 700; }
+  .tag-blue   { background: #eff6ff; color: #1d4ed8; border: 1.5px solid #bfdbfe; }
+  .tag-green  { background: #f0fdf4; color: #15803d; border: 1.5px solid #bbf7d0; }
+  .tag-purple { background: #f5f3ff; color: #6d28d9; border: 1.5px solid #ddd6fe; }
+
+  /* ─── MAIN GRID ─── */
+  /* outer wrapper: panels + arrow connectors between them */
+  .architecture-container {
+    display: grid;
+    grid-template-columns: 296px 28px 1fr 28px 296px;
+    gap: 0;
+    height: 880px;
+    align-items: stretch;
+  }
+
+  /* ─── PANELS ─── */
+  .panel {
+    border-radius: 22px; padding: 16px;
+    display: flex; flex-direction: column;
+    position: relative;
+  }
+  .panel-blue   { border: 3.5px solid #2563eb; background: #fafcff; gap: 0; }
+  .panel-green  { border: 3.5px solid #059669; background: #f9fffe; gap: 7px; }
+  .panel-red    { border: 3.5px solid #dc2626; background: #fffafa; gap: 0; }
+
+  /* ─── ARROW CONNECTORS between panels ─── */
+  .arrow-col {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 20px; padding: 0 2px;
+  }
+  .flow-arrow {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+  }
+  .arrow-line {
+    width: 2px; height: 36px; background: #94a3b8;
+  }
+  .arrow-head {
+    width: 0; height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+  }
+  .arrow-down { border-top: 7px solid #94a3b8; }
+  .arrow-right-wrap {
+    display: flex; align-items: center; gap: 3px;
+  }
+  .arrow-hline { height: 2px; width: 36px; background: #94a3b8; }
+  .arrow-right { width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 7px solid #94a3b8; }
+  .arrow-left  { width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-right: 7px solid #94a3b8; }
+
+  .panel-title { font-size: 14.5px; font-weight: 900; display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1.5px solid rgba(0,0,0,0.07); margin-bottom: 12px; }
+
+  /* ─── LEFT PANEL ─── */
+  .agent-hero {
+    background: #eff6ff; border-radius: 16px; padding: 18px 12px;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    margin-bottom: 12px; flex: 0 0 auto;
+  }
+  .agent-hero-label { font-size: 13px; font-weight: 800; color: #1d4ed8; text-align: center; }
+  .agent-hero-sub   { font-size: 11px; color: #3b82f6; text-align: center; }
+
+  .client-row {
+    display: flex; align-items: center; justify-content: space-between;
+    background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 11px;
+    padding: 10px 13px; font-size: 12px; font-weight: 700; color: #334155;
+    margin-bottom: 8px; flex: 0 0 auto;
+  }
+  .client-row-left { display: flex; align-items: center; gap: 9px; }
+  .client-badge { font-size: 10px; font-weight: 800; padding: 2px 9px; border-radius: 6px; background: #e2e8f0; color: #64748b; }
+
+  .left-spacer { flex: 1; }
+
+  .agent-desc-box {
+    background: #f1f5f9; border-radius: 12px; padding: 12px 14px;
+    margin-bottom: 10px; flex: 0 0 auto;
+  }
+  .agent-desc-title { font-size: 11px; font-weight: 800; color: #475569; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .agent-desc-item  { font-size: 10.5px; font-weight: 600; color: #64748b; line-height: 1.6; display: flex; align-items: flex-start; gap: 5px; }
+  .agent-desc-dot   { color: #94a3b8; flex-shrink: 0; line-height: 1.6; }
+
+  .wrap-cmd {
+    background: #fff; border: 2.5px solid #dc2626; border-radius: 13px;
+    padding: 12px 16px; display: flex; align-items: center; gap: 10px;
+    font-size: 12.5px; font-weight: 800; color: #dc2626; flex: 0 0 auto;
+  }
+
+  /* ─── GATEWAY ─── */
+  .gateway-label-pill {
+    position: absolute; top: -13px; right: 20px;
+    background: #059669; color: #fff;
+    font-size: 10px; font-weight: 800; padding: 3px 12px; border-radius: 20px;
+  }
+
+  .stage-card { border-radius: 14px; border: 2px solid; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
+  .stage-cyan   { border-color: #06b6d4; background: #f0fdff; }
+  .stage-yellow { border-color: #eab308; background: #fefce8; }
+  .stage-green2 { border-color: #22c55e; background: #f0fdf4; }
+  .stage-purple { border-color: #8b5cf6; background: #faf5ff; }
+
+  .stage-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .stage-head-left { display: flex; align-items: center; gap: 7px; }
+  .stage-title { font-size: 12px; font-weight: 900; color: #0f172a; }
+  .stage-eng   { font-size: 9.5px; font-weight: 600; color: #64748b; }
+  .stage-tag   { font-size: 9.5px; font-weight: 800; padding: 2px 9px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; }
+  .stag-cyan   { background: #cffafe; color: #0e7490; }
+  .stag-yellow { background: #fef9c3; color: #854d0e; }
+  .stag-green2 { background: #dcfce7; color: #166534; }
+  .stag-purple { background: #ede9fe; color: #5b21b6; }
+
+  .ops-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+  .op-card { background: #fff; border-radius: 10px; padding: 9px 10px; display: flex; align-items: flex-start; gap: 9px; border: 1px solid rgba(0,0,0,0.06); }
+  .op-icon { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .ic-cyan   { background: #e0f9fc; }
+  .ic-yellow { background: #fef9c3; }
+  .ic-green  { background: #dcfce7; }
+  .ic-purple { background: #ede9fe; }
+  .op-txt { display: flex; flex-direction: column; gap: 2px; }
+  .op-name { font-size: 11px; font-weight: 800; color: #0f172a; }
+  .op-sub  { font-size: 9.5px; font-weight: 500; color: #64748b; line-height: 1.4; }
+
+  .connector { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
+  .conn-line { flex: 1; height: 1px; background: #cbd5e1; }
+  .conn-pill { display: flex; align-items: center; gap: 5px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 20px; padding: 3px 11px; font-size: 10px; font-weight: 700; color: #475569; white-space: nowrap; }
+
+  .storage-bar { border: 1.5px dashed #94a3b8; border-radius: 11px; padding: 9px 14px; display: flex; align-items: center; justify-content: space-around; background: #f8fafc; flex: 0 0 auto; }
+  .storage-item { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700; color: #475569; }
+
+  /* ─── RIGHT PANEL ─── */
+  .llm-cards-wrap {
+    display: flex; flex-direction: column; gap: 8px;
+    flex: 1 1 0; min-height: 0;
+  }
+  .llm-card {
+    background: #fff; border-radius: 13px; border: 1.5px solid #e2e8f0;
+    padding: 14px 16px; display: flex; align-items: center; gap: 14px;
+    flex: 1 1 0;
+  }
+  .llm-logo { width: 42px; height: 42px; border-radius: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .llm-txt  { display: flex; flex-direction: column; gap: 3px; }
+  .llm-name { font-size: 13.5px; font-weight: 900; color: #0f172a; }
+  .llm-cap  { font-size: 10px; font-weight: 600; color: #64748b; }
+
+  .results-box {
+    background: #fff7ed; border: 2px solid #f59e0b; border-radius: 14px;
+    padding: 13px 15px; display: flex; flex-direction: column; gap: 8px;
+    flex: 0 0 auto; margin-top: 10px;
+  }
+  .results-title { font-size: 12px; font-weight: 900; color: #92400e; display: flex; align-items: center; gap: 7px; }
+  .result-item   { display: flex; align-items: flex-start; gap: 6px; font-size: 10.5px; font-weight: 600; color: #78350f; line-height: 1.45; }
+  .bullet { color: #f59e0b; font-size: 11px; flex-shrink: 0; line-height: 1.45; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header-bar">
+  <div class="logo-title-group">
+    <span class="brand-badge">CtxGuard</span>
+    <span class="title-text">AI Agent 上下文治理与智能缓存加速网关</span>
+  </div>
+  <div class="header-badges">
+    <span class="header-tag tag-blue">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      毫秒级反向代理
+    </span>
+    <span class="header-tag tag-green">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      Prompt Cache 稳定保活
+    </span>
+    <span class="header-tag tag-purple">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      零业务代码侵入
+    </span>
+  </div>
+</div>
+
+<!-- MAIN 5-COL (panel | arrow | panel | arrow | panel) -->
+<div class="architecture-container">
+
+  <!-- ═══ LEFT PANEL ═══ -->
+  <div class="panel panel-blue">
+    <div class="panel-title" style="color:#1d4ed8;">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      AI Coding Agents
+    </div>
+
+    <div class="agent-hero">
+      <svg width="72" height="72" viewBox="0 0 80 80" fill="none">
+        <rect x="6" y="8" width="68" height="46" rx="6" fill="#dbeafe" stroke="#3b82f6" stroke-width="2.5"/>
+        <rect x="14" y="20" width="24" height="4" rx="2" fill="#93c5fd"/>
+        <rect x="14" y="28" width="38" height="4" rx="2" fill="#60a5fa"/>
+        <rect x="14" y="36" width="18" height="4" rx="2" fill="#93c5fd"/>
+        <rect x="44" y="36" width="4" height="4" rx="1.5" fill="#2563eb"/>
+        <rect x="34" y="54" width="12" height="8" rx="2" fill="#93c5fd"/>
+        <rect x="24" y="61" width="32" height="4" rx="2" fill="#60a5fa"/>
+      </svg>
+      <div class="agent-hero-label">终端编码与自动化链路</div>
+      <div class="agent-hero-sub">代码编写 · 状态探测 · 终端测试</div>
+    </div>
+
+    <!-- Claude Code -->
+    <div class="client-row">
+      <div class="client-row-left">
+        <!-- Anthropic A mark -->
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="#d97706"><path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"/></svg>
+        Claude Code CLI
+      </div>
+      <span class="client-badge">CLI</span>
+    </div>
+
+    <!-- Cursor -->
+    <div class="client-row">
+      <div class="client-row-left">
+        <svg width="16" height="16" viewBox="0 0 36 36">
+          <polygon points="18,3 31,10.5 31,25.5 18,33 5,25.5 5,10.5" fill="#3b82f6" opacity="0.85"/>
+          <polygon points="18,3 31,10.5 18,18 5,10.5" fill="#93c5fd"/>
+          <polygon points="18,18 31,10.5 31,25.5 18,33" fill="#1d4ed8"/>
+          <polygon points="18,18 5,10.5 5,25.5 18,33" fill="#2563eb"/>
+        </svg>
+        Cursor &amp; Windsurf
+      </div>
+      <span class="client-badge">IDE</span>
+    </div>
+
+    <!-- VS Code / Codex -->
+    <div class="client-row">
+      <div class="client-row-left">
+        <svg width="16" height="16" viewBox="0 0 36 36" fill="none">
+          <path d="M30 4 L4 22 L4 14 L22 4Z" fill="#007acc"/>
+          <path d="M30 4 L30 32 L4 22 L30 4Z" fill="#005a9e"/>
+          <path d="M4 14 L4 22 L14 18Z" fill="#005a9e"/>
+          <path d="M30 32 L4 22 L14 18 L30 32Z" fill="#007acc" opacity="0.7"/>
+        </svg>
+        Codex Desktop / App
+      </div>
+      <span class="client-badge">App</span>
+    </div>
+
+    <!-- SDK -->
+    <div class="client-row">
+      <div class="client-row-left">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        Agent SDK / Custom
+      </div>
+      <span class="client-badge">SDK</span>
+    </div>
+
+    <div class="agent-desc-box" style="margin-top:12px;">
+      <div class="agent-desc-title">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        经 ctxguard wrap 自动拦截
+      </div>
+      <div class="agent-desc-item"><span class="agent-desc-dot">▸</span>无需修改 Agent 现有配置</div>
+      <div class="agent-desc-item"><span class="agent-desc-dot">▸</span>环境变量注入，透明接管所有 LLM 调用</div>
+      <div class="agent-desc-item"><span class="agent-desc-dot">▸</span>支持多进程 / 多会话并发治理</div>
+      <div class="agent-desc-item"><span class="agent-desc-dot">▸</span>流式 SSE 与非流式请求全覆盖</div>
+    </div>
+
+    <div class="left-spacer"></div>
+
+    <div class="wrap-cmd">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+      ctxguard wrap（一键透明注入）
+    </div>
+  </div>
+
+  <!-- ═══ ARROW COL 1 (left → gateway) ═══ -->
+  <div class="arrow-col">
+    <!-- request forward arrow -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+      <div style="font-size:9px;font-weight:700;color:#64748b;white-space:nowrap;transform:rotate(-90deg);transform-origin:center;margin-bottom:6px;">请求</div>
+      <div style="height:2px;width:20px;background:#2563eb;"></div>
+      <div style="width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;border-left:9px solid #2563eb;"></div>
+    </div>
+    <!-- response return arrow -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:20px;">
+      <div style="width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;border-right:9px solid #059669;"></div>
+      <div style="height:2px;width:20px;background:#059669;"></div>
+      <div style="font-size:9px;font-weight:700;color:#64748b;white-space:nowrap;transform:rotate(-90deg);transform-origin:center;margin-top:6px;">回传</div>
+    </div>
+  </div>
+
+  <!-- ═══ MIDDLE GATEWAY PANEL ═══ -->
+  <div class="panel panel-green" style="position:relative;">
+    <div class="gateway-label-pill">网关治理流水线</div>
+
+    <div class="panel-title" style="color:#047857;">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      CtxGuard Gateway Core
+    </div>
+
+    <!-- Stage 1 -->
+    <div class="stage-card stage-cyan">
+      <div class="stage-head">
+        <div class="stage-head-left">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0e7490" stroke-width="2.5"><path d="M4 6h16M4 12h16M4 18h7"/></svg>
+          <span class="stage-title">Stage 1：请求解析与前缀对齐</span>
+          <span class="stage-eng">Ingress &amp; Normalization</span>
+        </div>
+        <span class="stage-tag stag-cyan">零漂移对齐</span>
+      </div>
+      <div class="ops-grid">
+        <div class="op-card">
+          <div class="op-icon ic-cyan"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0891b2" stroke-width="2.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></div>
+          <div class="op-txt"><span class="op-name">Schema 确定性字母序重排</span><span class="op-sub">消除 Tool 乱序引发的缓存穿透</span></div>
+        </div>
+        <div class="op-card">
+          <div class="op-icon ic-cyan"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0891b2" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div>
+          <div class="op-txt"><span class="op-name">动态后缀与系统前缀隔离</span><span class="op-sub">锁定历史快照，仅变异末尾增量</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="connector">
+      <div class="conn-line"></div>
+      <div class="conn-pill"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>语法分析 &amp; 增量特征提取</div>
+      <div class="conn-line"></div>
+    </div>
+
+    <!-- Stage 2 -->
+    <div class="stage-card stage-yellow">
+      <div class="stage-head">
+        <div class="stage-head-left">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a16207" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span class="stage-title">Stage 2：结构化压缩与裁剪治理</span>
+          <span class="stage-eng">Compression &amp; Pruning Pipeline</span>
+        </div>
+        <span class="stage-tag stag-yellow">纯 C 语法引擎</span>
+      </div>
+      <div class="ops-grid">
+        <div class="op-card">
+          <div class="op-icon ic-yellow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a16207" stroke-width="2.5"><circle cx="12" cy="5" r="3"/><circle cx="6" cy="19" r="3"/><circle cx="18" cy="19" r="3"/><path d="M12 8v4M12 12l-6 4M12 12l6 4"/></svg></div>
+          <div class="op-txt"><span class="op-name">Tree-sitter AST 骨架折叠</span><span class="op-sub">函数签名与文档注释精准保留</span></div>
+        </div>
+        <div class="op-card">
+          <div class="op-icon ic-yellow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a16207" stroke-width="2.5"><path d="M12 3l9 17H3L12 3z"/><line x1="12" y1="10" x2="12" y2="14"/></svg></div>
+          <div class="op-txt"><span class="op-name">工具调用增量差分追踪</span><span class="op-sub">Jaccard 去重，削减探针冗余</span></div>
+        </div>
+        <div class="op-card">
+          <div class="op-icon ic-yellow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a16207" stroke-width="2.5"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg></div>
+          <div class="op-txt"><span class="op-name">日志首尾智能截断</span><span class="op-sub">滑动窗口 + ANSI 进度条合并</span></div>
+        </div>
+        <div class="op-card">
+          <div class="op-icon ic-yellow"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a16207" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/><line x1="1" y1="1" x2="23" y2="23"/></svg></div>
+          <div class="op-txt"><span class="op-name">思考链透传与凭据脱敏</span><span class="op-sub">保留推理链完整性，API Key 物理遮码</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="connector">
+      <div class="conn-line"></div>
+      <div class="conn-pill"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>零拷贝切片 &amp; 虚拟工具闭环校验</div>
+      <div class="conn-line"></div>
+    </div>
+
+    <!-- Stage 3 -->
+    <div class="stage-card stage-green2">
+      <div class="stage-head">
+        <div class="stage-head-left">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#166534" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          <span class="stage-title">Stage 3：前缀锁定与 CCR 闭环拦截</span>
+          <span class="stage-eng">Cache Guard &amp; CCR Loop</span>
+        </div>
+        <span class="stage-tag stag-green2">前缀稳态保活</span>
+      </div>
+      <div class="ops-grid">
+        <div class="op-card">
+          <div class="op-icon ic-green"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#166534" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div>
+          <div class="op-txt"><span class="op-name">二进制切片零拷贝透传</span><span class="op-sub">跳过反序列化，云端前缀稳定命中</span></div>
+        </div>
+        <div class="op-card">
+          <div class="op-icon ic-green"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#166534" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38L21.5 8"/></svg></div>
+          <div class="op-txt"><span class="op-name">虚拟工具 CCR 本地闭环拦截</span><span class="op-sub">本地还原原文，自动续写，客户端无感</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stage 4: Self-Evolution -->
+    <div class="stage-card stage-purple">
+      <div class="stage-head">
+        <div class="stage-head-left">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6d28d9" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38L21.5 8"/></svg>
+          <span class="stage-title" style="color:#5b21b6;">自学习与离线自进化引擎</span>
+          <span class="stage-eng">Offline Learn &amp; Self-Evolution</span>
+        </div>
+        <span class="stage-tag stag-purple">持续演进</span>
+      </div>
+      <div class="ops-grid">
+        <div class="op-card">
+          <div class="op-icon ic-purple"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2.5"><path d="M12 20V10M18 20V4M6 20v-4"/></svg></div>
+          <div class="op-txt"><span class="op-name" style="color:#4c1d95;">ctxguard learn 离线规则归纳</span><span class="op-sub">从历史失效会话提炼治理规则</span></div>
+        </div>
+        <div class="op-card">
+          <div class="op-icon ic-purple"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
+          <div class="op-txt"><span class="op-name" style="color:#4c1d95;">失效模式自动检测与上报</span><span class="op-sub">异常聚类分析，写入 AGENTS.md</span></div>
+        </div>
+        <div class="op-card">
+          <div class="op-icon ic-purple"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2.5"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></div>
+          <div class="op-txt"><span class="op-name" style="color:#4c1d95;">策略白名单与死循环防护</span><span class="op-sub">开发命令白名单，阻断重入死锁</span></div>
+        </div>
+        <div class="op-card">
+          <div class="op-icon ic-purple"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
+          <div class="op-txt"><span class="op-name" style="color:#4c1d95;">Web 实时可观测监控大盘</span><span class="op-sub">TTL 缓存刷新，零阻塞事件循环</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Storage Footer -->
+    <div class="storage-bar">
+      <div class="storage-item">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        SQLite WAL 热点指纹池
+      </div>
+      <span style="color:#cbd5e1;">•</span>
+      <div class="storage-item">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        AGENTS.md 规则版本管理
+      </div>
+      <span style="color:#cbd5e1;">•</span>
+      <div class="storage-item">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        SSE 流式监控与告警
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ARROW COL 2 (gateway ↔ LLMs) ═══ -->
+  <div class="arrow-col">
+    <!-- forward to LLM -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+      <div style="font-size:9px;font-weight:700;color:#64748b;white-space:nowrap;transform:rotate(-90deg);margin-bottom:6px;">上游</div>
+      <div style="height:2px;width:20px;background:#dc2626;"></div>
+      <div style="width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;border-left:9px solid #dc2626;"></div>
+    </div>
+    <!-- stream back arrow -->
+    <div style="display:flex;flex-direction:column;align-items:center;gap:4px;margin-top:20px;">
+      <div style="width:0;height:0;border-top:6px solid transparent;border-bottom:6px solid transparent;border-right:9px solid #059669;"></div>
+      <div style="height:2px;width:20px;background:#059669;"></div>
+      <div style="font-size:9px;font-weight:700;color:#64748b;white-space:nowrap;transform:rotate(-90deg);margin-top:6px;">流式</div>
+    </div>
+  </div>
+
+  <!-- ═══ RIGHT PANEL: Upstream LLMs ═══ -->
+  <div class="panel panel-red">
+    <div class="panel-title" style="color:#b91c1c;">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+      Upstream LLMs
+    </div>
+
+    <div class="llm-cards-wrap">
+      <!-- Google Gemini: official 4-pointed sparkle star (purple/blue gradient) -->
+      <div class="llm-card">
+        <div class="llm-logo" style="background:#f3f0ff;">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="#8E75B2">
+            <path d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/>
+          </svg>
+        </div>
+        <div class="llm-txt">
+          <span class="llm-name">Google Gemini</span>
+          <span class="llm-cap">Context Caching · Native Thinking</span>
+        </div>
+      </div>
+
+      <!-- Anthropic Claude: official "A" lettermark -->
+      <div class="llm-card">
+        <div class="llm-logo" style="background:#191919;">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="#D4785A">
+            <path d="M17.3041 3.541h-3.6718l6.696 16.918H24Zm-10.6082 0L0 20.459h3.7442l1.3693-3.5527h7.0052l1.3693 3.5528h3.7442L10.5363 3.5409Zm-.3712 10.2232 2.2914-5.9456 2.2914 5.9456Z"/>
+          </svg>
+        </div>
+        <div class="llm-txt">
+          <span class="llm-name">Anthropic Claude</span>
+          <span class="llm-cap">Prompt Cache · Extended Thinking</span>
+        </div>
+      </div>
+
+      <!-- OpenAI: official pinwheel -->
+      <div class="llm-card">
+        <div class="llm-logo" style="background:#000000;">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="#ffffff">
+            <path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/>
+          </svg>
+        </div>
+        <div class="llm-txt">
+          <span class="llm-name">OpenAI</span>
+          <span class="llm-cap">Prompt Cache · Reasoning Guard</span>
+        </div>
+      </div>
+
+      <!-- DeepSeek: official logo -->
+      <div class="llm-card">
+        <div class="llm-logo" style="background:#e0f2fe;">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="#0ea5e9">
+            <path d="M23.748 4.651c-.254-.124-.364.113-.512.233-.051.04-.094.09-.137.137-.372.397-.806.657-1.373.626-.829-.046-1.537.214-2.163.848-.133-.782-.575-1.248-1.247-1.548-.352-.155-.708-.311-.955-.65-.172-.24-.219-.509-.305-.774-.055-.16-.11-.323-.293-.35-.2-.031-.278.136-.356.276-.313.572-.434 1.202-.422 1.84.027 1.436.633 2.58 1.838 3.393.137.094.172.187.129.323-.082.28-.18.553-.266.833-.055.179-.137.218-.328.14a5.5 5.5 0 0 1-1.737-1.179c-.857-.828-1.631-1.743-2.597-2.46a12 12 0 0 0-.689-.47c-.985-.957.13-1.743.387-1.836.27-.098.094-.433-.778-.428-.872.003-1.67.295-2.687.685a3 3 0 0 1-.465.136 9.6 9.6 0 0 0-2.883-.101c-1.885.21-3.39 1.1-4.497 2.622C.082 8.776-.231 10.854.152 13.02c.403 2.284 1.568 4.175 3.36 5.653 1.857 1.533 3.997 2.284 6.438 2.14 1.482-.085 3.132-.284 4.994-1.86.47.234.962.328 1.78.398.629.058 1.235-.031 1.705-.129.735-.155.684-.836.418-.961-2.155-1.004-1.682-.595-2.112-.926 1.095-1.295 2.768-3.598 3.284-6.733.05-.346.115-.834.108-1.114-.004-.171.035-.238.23-.257a4.2 4.2 0 0 0 1.545-.475c1.397-.763 1.96-2.016 2.093-3.517.02-.23-.004-.467-.247-.588M11.58 18.168c-2.088-1.642-3.101-2.183-3.52-2.16-.39.024-.32.472-.234.763.09.288.207.487.371.74.114.167.192.416-.113.603-.673.416-1.842-.14-1.897-.168-1.361-.801-2.5-1.86-3.301-3.306-.775-1.393-1.225-2.888-1.299-4.482-.02-.385.094-.522.477-.592a4.7 4.7 0 0 1 1.53-.038c2.131.311 3.946 1.264 5.467 2.774.868.86 1.525 1.887 2.202 2.89.72 1.066 1.494 2.082 2.48 2.915.348.291.626.513.892.677-.802.09-2.14.109-3.055-.615zm1.001-6.44a.306.306 0 0 1 .415-.287.3.3 0 0 1 .113.074.3.3 0 0 1 .086.214c0 .17-.136.307-.308.307a.303.303 0 0 1-.306-.307m3.11 1.596c-.2.081-.4.151-.591.16a1.25 1.25 0 0 1-.798-.254c-.274-.23-.47-.358-.551-.758a1.7 1.7 0 0 1 .015-.588c.07-.327-.007-.537-.238-.727-.188-.156-.426-.199-.689-.199a.6.6 0 0 1-.254-.078.253.253 0 0 1-.114-.358 1 1 0 0 1 .192-.21c.356-.202.767-.136 1.146.016.352.144.618.408 1.001.782.392.451.462.576.685.915.176.264.336.536.446.848.066.194-.02.353-.25.45"/>
+          </svg>
+        </div>
+        <div class="llm-txt">
+          <span class="llm-name">DeepSeek</span>
+          <span class="llm-cap">Prefix KV Cache · Zero Mimicry</span>
+        </div>
+      </div>
+    </div><!-- /llm-cards-wrap -->
+
+    <!-- Benefits -->
+    <div class="results-box">
+      <div class="results-title">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2.5"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+        核心治理收益
+      </div>
+      <div class="result-item"><span class="bullet">▸</span>云端原生 KV Cache 前缀稳定命中</div>
+      <div class="result-item"><span class="bullet">▸</span>大幅压降请求上下文与通信开销</div>
+      <div class="result-item"><span class="bullet">▸</span>消除模型思考链与状态探测死循环</div>
+      <div class="result-item"><span class="bullet">▸</span>毫秒级无感透传与完全可逆还原</div>
+    </div>
+  </div><!-- /right panel -->
+
+</div><!-- /architecture-container -->
+</body>
+</html>
