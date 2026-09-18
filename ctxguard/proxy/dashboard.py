@@ -2101,6 +2101,7 @@ export class UserController {
           const proj = r.project_name || 'Pi-Agent';
 
           const isStreaming = (r.status === 'streaming');
+          const isFailed = (r.status === 'error');
           // Determine cache badge: strictly show actual cached tokens
           const cachedTokens = r.cached_tokens || 0;
           let cacheBadge = '<span class="text-gray-500 font-mono text-[11px]">0</span>';
@@ -2110,6 +2111,11 @@ export class UserController {
               <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping mr-0.5"></span>
               <span>流式生成中...</span>
             </span>`;
+          } else if (isFailed) {
+            cacheBadge = `<span class="px-2 py-0.5 rounded-md bg-red-500/10 text-red-400 border border-red-500/20 text-[10px] font-mono flex items-center space-x-1 w-max">
+              <span class="w-1.5 h-1.5 rounded-full bg-red-500 mr-0.5"></span>
+              <span>请求失败</span>
+            </span>`;
           } else if (cachedTokens > 0) {
             cacheBadge = `<span class="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-300 border border-blue-500/20 font-bold font-mono text-[11px] flex items-center space-x-1 w-max">
               <span>${cachedTokens.toLocaleString()}</span>
@@ -2118,14 +2124,20 @@ export class UserController {
 
           const tokenDisplay = isStreaming
             ? `${r.raw_tokens} <span class="text-gray-500">→</span> <span class="text-amber-400/80 animate-pulse text-[11px]">传输中...</span>`
+            : isFailed
+            ? `${r.raw_tokens} <span class="text-gray-500">→</span> <span class="text-red-400/90 text-[11px]">上游未返回</span>`
             : `${r.raw_tokens} <span class="text-gray-500">→</span> <span class="text-emerald-400">${r.optimized_tokens}</span>`;
 
           const savedRatioDisplay = isStreaming
             ? `<span class="text-gray-500 text-xs animate-pulse">计算中...</span>`
+            : isFailed
+            ? `<span class="text-gray-600 text-xs">—</span>`
             : `<span class="font-bold text-[#ff5722]">${r.saved_ratio}%</span>`;
 
           const latencyDisplay = isStreaming
             ? `<span class="text-amber-400/80 animate-pulse text-xs">进行中...</span>`
+            : isFailed
+            ? `<span class="text-gray-600 text-xs">—</span>`
             : `<span class="text-amber-300">${r.latency_ms.toFixed(1)}ms</span>`;
 
           return `
@@ -2318,6 +2330,10 @@ export class UserController {
         cacheText.innerHTML = `<span class="text-amber-300 font-bold animate-pulse">流式生成中...</span> (等待上游返回最终 Usage)`;
         cacheBadge.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse';
         cacheBadge.innerText = 'STREAMING';
+      } else if (r.status === 'error') {
+        cacheText.innerHTML = `<span class="text-red-400 font-bold">请求失败</span> (上游错误或连接中断，未产生完整响应)`;
+        cacheBadge.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-red-500/20 text-red-400 border border-red-500/30';
+        cacheBadge.innerText = 'ERROR';
       } else if (cTokens > 0) {
         cacheText.innerHTML = `<span class="text-blue-300 font-bold">实际缓存命中: ${cTokens.toLocaleString()} Tokens</span> (来源: ${cType.toUpperCase()})`;
         cacheBadge.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30';

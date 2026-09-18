@@ -280,6 +280,14 @@ class ContextTracker:
     def format_proactive_expansion(
         self,
         expansions: List[Dict[str, Any]],
+        workspace_name: str = "",
+        session_id: str = "",
+    ) -> str:
+        return ""
+
+    def _disabled_format_proactive_expansion(
+        self,
+        expansions: List[Dict[str, Any]],
         session_id: str = "",
         workspace_key: str = "",
     ) -> str:

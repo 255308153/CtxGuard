@@ -119,7 +119,7 @@ class StatsRepository:
                         saved_tokens = MAX(0, MAX(raw_tokens, ?) - ?),
                         saved_ratio = ROUND((MAX(0, MAX(raw_tokens, ?) - ?) * 100.0) / MAX(1, MAX(raw_tokens, ?)), 2),
                         status = 'completed'
-                    WHERE id = ?
+                    WHERE id = ? AND status != 'error'
                     """,
                     (cached_tokens, cache_type, effective_opt, effective_opt, effective_opt, effective_opt, effective_opt, effective_opt, effective_opt, request_id),
                 )
@@ -132,19 +132,46 @@ class StatsRepository:
                         optimized_tokens = MAX(optimized_tokens, ?),
                         raw_tokens = MAX(raw_tokens, ?),
                         status = 'completed'
-                    WHERE id = ?
+                    WHERE id = ? AND status != 'error'
                     """,
                     (cached_tokens, cache_type, cached_tokens, cached_tokens, request_id),
                 )
             conn.commit()
 
     def mark_request_completed(self, request_id: int) -> None:
-        """Mark in-flight streaming request as completed if stream finishes without token updates."""
+        """Mark in-flight streaming request as completed if stream finishes without token updates.
+
+        Sticky error: a request already marked 'error' must never be flipped back
+        to 'completed' by a late on_complete/finally callback — mid-stream aborts
+        run those callbacks too, and overwriting would hide the failure in stats.
+        """
         if not request_id:
             return
         with self.db.get_connection() as conn:
-            conn.execute("UPDATE requests SET status = 'completed' WHERE id = ?", (request_id,))
+            conn.execute(
+                "UPDATE requests SET status = 'completed' WHERE id = ? AND status != 'error'",
+                (request_id,),
+            )
             conn.commit()
+
+    def mark_request_error(self, request_id: int) -> None:
+        """Mark an in-flight streaming request as failed (upstream error, connection failure, or client abort)."""
+        if not request_id:
+            return
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE requests SET status = 'error' WHERE id = ? AND status = 'streaming'", (request_id,))
+            conn.commit()
+
+    def fail_stale_streaming_requests(self) -> int:
+        """Fail any rows still marked 'streaming' (orphaned by a previous gateway shutdown/restart).
+
+        Called once at gateway startup: no stream can be in-flight before the app starts,
+        so every leftover 'streaming' row is by definition stale.
+        """
+        with self.db.get_connection() as conn:
+            cursor = conn.execute("UPDATE requests SET status = 'error' WHERE status = 'streaming'")
+            conn.commit()
+            return cursor.rowcount
 
     def get_summary(self, project_name: Optional[str] = None) -> Dict[str, Any]:
         """Aggregate total token savings, request counts, cache stats, and latency averages."""

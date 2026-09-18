@@ -104,6 +104,10 @@ class DatabaseManager:
                 conn.execute("ALTER TABLE requests ADD COLUMN status TEXT DEFAULT 'completed'")
             except sqlite3.OperationalError:
                 pass
+            try:
+                conn.execute("ALTER TABLE session_cache ADD COLUMN last_original_messages TEXT")
+            except sqlite3.OperationalError:
+                pass
 
             # 3. Indexes
             conn.execute("CREATE INDEX IF NOT EXISTS idx_requests_session ON requests(session_id);")

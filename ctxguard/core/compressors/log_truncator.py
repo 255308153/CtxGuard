@@ -112,8 +112,15 @@ class LogTruncator(BaseCompressor):
         session_id = context.request.session_id or "default"
 
         for msg in target_messages:
-            if msg.role == "assistant":
-                continue  # Never mutate assistant messages
+            # Cache Invariant 2 (System Prompt Immutability): `system` /
+            # `developer` instructions are the immutable head of the prompt
+            # cache prefix. Folding them replaces the first bytes of every
+            # request with a placeholder, drops policy/tool guidance from the
+            # model's system prompt, and — once a folded copy is frozen into
+            # the session prefix — poisons it for the remainder of the session.
+            # Assistant replies are likewise never rewritten.
+            if msg.role in ("assistant", "system", "developer"):
+                continue
 
             text = msg.get_text_content()
             if not text:

@@ -16,6 +16,7 @@ from ctxguard.storage.db import DatabaseManager
 from ctxguard.storage.repository_stats import StatsRepository
 from ctxguard.storage.repository_fingerprint import FingerprintRepository
 from ctxguard.storage.repository_graph import SQLiteGraphStore
+from ctxguard.storage.cache_zero_recorder import CacheZeroRecorder
 from ctxguard.utils.console import Console
 
 
@@ -26,6 +27,10 @@ def create_app(config: AppConfig) -> FastAPI:
     stats_repo = StatsRepository(db_manager)
     fingerprint_repo = FingerprintRepository(db_manager, max_records=config.dedup.max_records)
     graph_store = SQLiteGraphStore(db_manager)
+    cache_zero_recorder = CacheZeroRecorder(
+        directory=getattr(config.cache_guard, "cache_zero_recording_dir", ".ctxguard/cache_zero"),
+        enabled=getattr(config.cache_guard, "cache_zero_recording_enabled", True),
+    )
 
     pipeline = CompressionPipeline(config, fingerprint_repo=fingerprint_repo, db_manager=db_manager)
     upstream = UpstreamClient(config.upstream, timeout_seconds=config.server.timeout_seconds)
@@ -34,6 +39,14 @@ def create_app(config: AppConfig) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         Console.info(f"CtxGuard Gateway started on http://{config.server.host}:{config.server.port}")
         Console.info(f"Single-file SQLite storage active at: {config.learn.storage_db}")
+        # Finalize streaming rows orphaned by a previous shutdown/restart so the
+        # dashboard never shows request records stuck in "传输中" forever.
+        try:
+            stale = stats_repo.fail_stale_streaming_requests()
+            if stale:
+                Console.info(f"Finalized {stale} orphaned 'streaming' request record(s) as 'error'.")
+        except Exception as exc:
+            Console.error(f"Failed to sweep stale streaming requests: {exc}")
         # Pre-warm Jieba tokenizer to eliminate cold start latency
         try:
             import jieba
@@ -87,6 +100,7 @@ def create_app(config: AppConfig) -> FastAPI:
         stats_repo=stats_repo,
         fingerprint_repo=fingerprint_repo,
         graph_store=graph_store,
+        cache_zero_recorder=cache_zero_recorder,
     )
     app.include_router(router)
 

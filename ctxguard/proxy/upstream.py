@@ -224,6 +224,7 @@ class UpstreamClient:
         headers: Optional[Dict[str, str]] = None,
         provider_name: Optional[str] = None,
         raw_body: Optional[bytes] = None,
+        protocol: str = "openai",
     ) -> AsyncIterator[bytes]:
         """Stream request to upstream and yield raw byte chunks, ensuring errors are formatted cleanly.
         If raw_body is provided, forwards raw bytes verbatim without re-serialization.
@@ -245,14 +246,12 @@ class UpstreamClient:
                     if chunk:
                         yield chunk
         except Exception as exc:
-            import orjson
-            error_payload = {
-                "error": {
-                    "message": f"CtxGuard stream connection error: {str(exc)}",
-                    "type": "gateway_stream_error",
-                    "code": 502,
-                }
-            }
-            yield f"data: {orjson.dumps(error_payload).decode('utf-8')}\n\n".encode("utf-8")
+            from ctxguard.proxy.sse import SSEStreamHandler
+
+            # Emit the error event, then synthesize a protocol-correct terminal
+            # tail (finish_reason/[DONE] or message_stop) so clients never see a
+            # stream that ends without a finish_reason after a mid-flight abort.
+            for tail_chunk in SSEStreamHandler.build_aborted_tail(protocol, str(exc)):
+                yield tail_chunk
         finally:
             await stream_client.aclose()

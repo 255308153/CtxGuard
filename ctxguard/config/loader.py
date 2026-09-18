@@ -208,6 +208,8 @@ class ConfigLoader:
                 session_serialization_enabled=bool(cg_data.get("session_serialization_enabled", config.cache_guard.session_serialization_enabled)),
                 session_queue_timeout_seconds=float(cg_data.get("session_queue_timeout_seconds", config.cache_guard.session_queue_timeout_seconds)),
                 inject_prompt_cache_key=bool(cg_data.get("inject_prompt_cache_key", config.cache_guard.inject_prompt_cache_key)),
+                cache_zero_recording_enabled=bool(cg_data.get("cache_zero_recording_enabled", config.cache_guard.cache_zero_recording_enabled)),
+                cache_zero_recording_dir=str(cg_data.get("cache_zero_recording_dir", config.cache_guard.cache_zero_recording_dir)),
                 provider_cache_ttls=provider_ttls,
             )
 

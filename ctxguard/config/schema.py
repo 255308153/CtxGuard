@@ -173,6 +173,8 @@ class CacheGuardConfig:
     session_serialization_enabled: bool = True
     session_queue_timeout_seconds: float = 45.0
     inject_prompt_cache_key: bool = True
+    cache_zero_recording_enabled: bool = True
+    cache_zero_recording_dir: str = ".ctxguard/cache_zero"
     provider_cache_ttls: Dict[str, int] = field(default_factory=lambda: {
         "gemini": 300,
         "google": 300,
@@ -268,4 +270,3 @@ class AppConfig:
     piggyback_extraction: PiggybackExtractionConfig = field(default_factory=PiggybackExtractionConfig)
     output_shaper: OutputShapingConfig = field(default_factory=OutputShapingConfig)
     proactive_expansion: ProactiveExpansionConfig = field(default_factory=ProactiveExpansionConfig)
-

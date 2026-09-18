@@ -2,6 +2,7 @@
 
 from typing import AsyncIterator, Callable, Optional
 import codecs
+import time
 import orjson
 import uuid
 
@@ -65,6 +66,16 @@ class SSEStreamHandler:
                     if val > 0:
                         cached_tokens = val
                         cache_type = "deepseek_cache"
+
+                # 3a2. Grok / xAI / vLLM cached prompt tokens
+                if cached_tokens == 0:
+                    for k in ("prompt_cache_tokens", "cached_prompt_tokens", "cached_tokens"):
+                        if k in usage:
+                            val = usage.get(k) or 0
+                            if val > 0:
+                                cached_tokens = val
+                                cache_type = "grok_cache"
+                                break
 
                 # 3b. Anthropic: cache_read_input_tokens
                 if cached_tokens == 0 and "cache_read_input_tokens" in usage:
@@ -215,6 +226,60 @@ class SSEStreamHandler:
 
             if on_complete:
                 on_complete(cached_tokens_total, cache_type_total, prompt_tokens_total)
+
+    @classmethod
+    def build_aborted_tail(
+        cls, protocol: str, message: str, model: Optional[str] = None
+    ) -> list[bytes]:
+        """Synthesize protocol-closing SSE events after a mid-stream upstream abort.
+
+        Clients (pi agent, Claude Code, Codex) block until they see a terminal
+        event — OpenAI: a chunk carrying finish_reason followed by [DONE];
+        Anthropic: message_delta + message_stop. Without a synthesized tail the
+        stream ends silently and the client crashes with errors like
+        "Stream ended without finish_reason". The error event is emitted first
+        so error-aware clients can still surface the root cause.
+        """
+        tail: list[bytes] = []
+        if protocol == "anthropic":
+            err = {
+                "type": "error",
+                "error": {
+                    "type": "api_error",
+                    "message": f"CtxGuard upstream stream aborted: {message}",
+                },
+            }
+            tail.append(
+                f"event: error\ndata: {orjson.dumps(err).decode('utf-8')}\n\n".encode("utf-8")
+            )
+            md = {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                "usage": {"output_tokens": 0},
+            }
+            tail.append(
+                f"event: message_delta\ndata: {orjson.dumps(md).decode('utf-8')}\n\n".encode("utf-8")
+            )
+            tail.append(b"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+        else:
+            err = {
+                "error": {
+                    "message": f"CtxGuard upstream stream aborted: {message}",
+                    "type": "gateway_stream_error",
+                    "code": 502,
+                }
+            }
+            tail.append(f"data: {orjson.dumps(err).decode('utf-8')}\n\n".encode("utf-8"))
+            chunk = {
+                "id": "chatcmpl-ctxguard-aborted",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model or "unknown",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            }
+            tail.append(f"data: {orjson.dumps(chunk).decode('utf-8')}\n\n".encode("utf-8"))
+            tail.append(b"data: [DONE]\n\n")
+        return tail
 
     @classmethod
     def _build_closing_events(cls, state: dict) -> list[bytes]:

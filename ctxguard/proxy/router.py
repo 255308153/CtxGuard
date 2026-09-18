@@ -4,7 +4,7 @@ import asyncio
 import time
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, Union
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 import orjson
@@ -35,7 +35,8 @@ import httpx
 from ctxguard.storage.repository_stats import StatsRepository
 from ctxguard.storage.repository_fingerprint import FingerprintRepository
 from ctxguard.storage.repository_graph import SQLiteGraphStore
-from ctxguard.storage.graph_models import Entity, Relationship, RelationshipDirection
+from ctxguard.storage.cache_zero_recorder import CacheZeroRecorder
+from ctxguard.storage.graph_models import Entity, Relationship
 from ctxguard.core.memory.graph_engine import MemoryGraphEngine
 from ctxguard.core.semantic_cache import SemanticCache
 from ctxguard.core.context import RequestContext
@@ -178,6 +179,16 @@ def parse_cache_stats(resp_content: bytes, protocol: str = "openai") -> tuple[in
                     cached_tokens = val
                     cache_type = "deepseek_cache"
 
+            # 1b. Grok / xAI / vLLM cached prompt tokens
+            if cached_tokens == 0:
+                for k in ("prompt_cache_tokens", "cached_prompt_tokens", "cached_tokens"):
+                    if k in usage:
+                        val = usage.get(k) or 0
+                        if val > 0:
+                            cached_tokens = val
+                            cache_type = "grok_cache"
+                            break
+
             # 2. Anthropic: cache_read_input_tokens
             if cached_tokens == 0 and "cache_read_input_tokens" in usage:
                 val = usage.get("cache_read_input_tokens") or 0
@@ -231,6 +242,7 @@ def create_router(
     fingerprint_repo: Optional[FingerprintRepository] = None,
     graph_store: Optional[SQLiteGraphStore] = None,
     semantic_cache: Optional[SemanticCache] = None,
+    cache_zero_recorder: Optional[CacheZeroRecorder] = None,
 ) -> APIRouter:
     router = APIRouter()
 
@@ -244,6 +256,36 @@ def create_router(
     streaming_vtool_handler = StreamingVirtualToolHandler(vtool_handler)
     pb_enabled = getattr(getattr(config, "piggyback_extraction", None), "enabled", True)
     graph_engine = MemoryGraphEngine(graph_store, piggyback_enabled=pb_enabled) if graph_store else None
+    cache_zero_recorder = cache_zero_recorder or CacheZeroRecorder(
+        directory=getattr(config.cache_guard, "cache_zero_recording_dir", ".ctxguard/cache_zero"),
+        enabled=getattr(config.cache_guard, "cache_zero_recording_enabled", True),
+    )
+
+    def record_cache_zero(req_ctx: RequestContext, session_id: str, project_name: str,
+                          provider_name: str, cached_toks: int, c_type: str,
+                          prompt_toks: Optional[int] = None, request_id: Optional[int] = None) -> None:
+        """在本轮完成后保存缓存零诊断，并在保存前读取上一轮快照。"""
+        if cached_toks != 0 or not hasattr(pipeline, "cache_guard") or not pipeline.cache_guard:
+            return
+        # 只记录“上一轮命中过缓存、紧接着这一轮变为 0”的断点。
+        previous_turn = pipeline.cache_guard.get_previous_turn_snapshot(session_id)
+        if not previous_turn or int(previous_turn.get("cached_tokens", 0) or 0) <= 0:
+            return
+        cache_zero_recorder.record_async(
+            session_id=session_id,
+            protocol=req_ctx.request.protocol,
+            model=req_ctx.request.model,
+            provider=provider_name,
+            project_name=project_name,
+            request=req_ctx.request,
+            current_messages=req_ctx.request.messages,
+            previous_turn=previous_turn,
+            cached_tokens=cached_toks,
+            cache_type=c_type,
+            prompt_tokens=prompt_toks,
+            request_id=request_id,
+            applied_compressors=req_ctx.applied_compressors,
+        )
     if semantic_cache is None:
         sc_config = getattr(config, "semantic_cache", None)
         semantic_cache = SemanticCache(config=sc_config)
@@ -729,7 +771,7 @@ def create_router(
 
         # Update cache_guard turn record
         if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-            pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=sim_cached_tokens)
+            pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=sim_cached_tokens, original_messages=getattr(req_ctx.request, "_raw_original_messages", None))
         session_last_activity[session_id] = time.time()
 
         return {
@@ -1031,21 +1073,6 @@ def create_router(
                 if "stream_options" not in upstream_payload:
                     upstream_payload["stream_options"] = {"include_usage": True}
 
-                stream_gen = upstream.forward_stream(
-                    "v1/chat/completions", upstream_payload, headers, provider_name, **fwd_kwargs
-                )
-                if streaming_vtool_handler:
-                    stream_gen = streaming_vtool_handler.wrap_stream(
-                        stream_gen=stream_gen,
-                        upstream_payload=upstream_payload,
-                        headers=headers,
-                        provider_name=provider_name,
-                        upstream_client=upstream,
-                        protocol="openai",
-                        path="v1/chat/completions",
-                        session_id=session_id,
-                        fwd_kwargs=fwd_kwargs,
-                    )
                 duration_ms = (time.perf_counter() - start_time) * 1000
                 if req_ctx.original_tokens > req_ctx.optimized_tokens:
                     record_savings_event(
@@ -1070,14 +1097,81 @@ def create_router(
                         status="streaming",
                     )
 
+                # Cache Invariant 3: probe upstream status BEFORE returning a
+                # StreamingResponse, so upstream 4xx/5xx reaches the client as a
+                # real HTTP error instead of error bytes inside a 200 SSE stream.
+                try:
+                    upstream_resp = await upstream.send_stream_request(
+                        "v1/chat/completions", upstream_payload, headers, provider_name, **fwd_kwargs
+                    )
+                except Exception as exc:
+                    logger.error(f"[Proxy] Upstream connection exception on 'v1/chat/completions': {type(exc)}: {exc}", exc_info=True)
+                    if req_id and stats_repo:
+                        stats_repo.mark_request_error(req_id)
+                    return JSONResponse(
+                        {"error": {"message": f"CtxGuard upstream connection error: {str(exc)}", "code": 502}},
+                        status_code=502,
+                    )
+
+                if upstream_resp.status_code >= 400:
+                    try:
+                        error_bytes = await upstream_resp.aread()
+                    finally:
+                        await upstream_resp.aclose()
+                        stream_client = getattr(upstream_resp, "_stream_client", None)
+                        if stream_client:
+                            await stream_client.aclose()
+                    logger.error(f"[Proxy] Upstream error {upstream_resp.status_code} on 'v1/chat/completions': {error_bytes.decode('utf-8', errors='ignore')[:500]}")
+                    if req_id and stats_repo:
+                        stats_repo.mark_request_error(req_id)
+                    return Response(
+                        content=error_bytes,
+                        status_code=upstream_resp.status_code,
+                        media_type=upstream_resp.headers.get("content-type") or "application/json",
+                    )
+
+                async def body_generator():
+                    try:
+                        async for chunk in upstream_resp.aiter_bytes():
+                            if chunk:
+                                yield chunk
+                    except (httpx.TransportError, httpx.StreamError) as exc:
+                        logger.warning(f"[Proxy] Upstream stream interrupted mid-flight: {exc}")
+                        if req_id and stats_repo:
+                            stats_repo.mark_request_error(req_id)
+                        # Synthesize a protocol-correct tail so the client sees a
+                        # terminal event instead of "Stream ended without finish_reason".
+                        for tail in SSEStreamHandler.build_aborted_tail("openai", str(exc), model=norm_req.model):
+                            yield tail
+                    finally:
+                        await upstream_resp.aclose()
+                        stream_client = getattr(upstream_resp, "_stream_client", None)
+                        if stream_client:
+                            await stream_client.aclose()
+
+                stream_gen = body_generator()
+                if streaming_vtool_handler:
+                    stream_gen = streaming_vtool_handler.wrap_stream(
+                        stream_gen=stream_gen,
+                        upstream_payload=upstream_payload,
+                        headers=headers,
+                        provider_name=provider_name,
+                        upstream_client=upstream,
+                        protocol="openai",
+                        path="v1/chat/completions",
+                        session_id=session_id,
+                        fwd_kwargs=fwd_kwargs,
+                    )
+
                 def on_openai_stream_complete(cached_toks: int, c_type: str, prompt_toks: Optional[int] = None):
+                    record_cache_zero(req_ctx, session_id, project_name, provider_name, cached_toks, c_type, prompt_toks, req_id)
                     if req_id and stats_repo:
                         if cached_toks > 0 or (prompt_toks and prompt_toks > 0):
                             stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
                         else:
                             stats_repo.mark_request_completed(req_id)
                     if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-                        pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
+                        pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks, original_messages=getattr(req_ctx.request, "_raw_original_messages", None))
                     session_last_activity[session_id] = time.time()
 
                 lock_delegated = True
@@ -1148,8 +1242,9 @@ def create_router(
                 cached_toks, c_type, prompt_toks = parse_cache_stats(resp.content, protocol="openai")
                 effective_opt = max(prompt_toks, cached_toks) if prompt_toks else req_ctx.optimized_tokens
                 effective_raw = max(req_ctx.original_tokens, effective_opt)
+                req_id = None
                 if stats_repo:
-                    stats_repo.record_request(
+                    req_id = stats_repo.record_request(
                         session_id=session_id,
                         protocol="openai",
                         model=norm_req.model,
@@ -1164,7 +1259,8 @@ def create_router(
                         status="completed",
                     )
                 if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-                    pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
+                    record_cache_zero(req_ctx, session_id, project_name, provider_name, cached_toks, c_type, prompt_toks, req_id)
+                    pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks, original_messages=getattr(req_ctx.request, "_raw_original_messages", None))
                 session_last_activity[session_id] = time.time()
 
                 response_bytes_to_return = resp.content
@@ -1438,6 +1534,9 @@ def create_router(
                     logger.info(f"[Responses] Upstream returned status {upstream_resp.status_code} for path '{path}'")
                 except Exception as exc:
                     logger.error(f"[Responses] Upstream connection exception on '{path}': {type(exc)}: {exc}", exc_info=True)
+                    # Finalize the in-flight row so it does not stay 'streaming' forever
+                    if req_id and stats_repo:
+                        stats_repo.mark_request_error(req_id)
                     return JSONResponse(
                         {"error": {"message": f"CtxGuard upstream connection error: {str(exc)}", "code": 502}},
                         status_code=502,
@@ -1452,6 +1551,9 @@ def create_router(
                         if stream_client:
                             await stream_client.aclose()
                     logger.error(f"[Responses] Upstream error {upstream_resp.status_code} on '{path}': {error_bytes.decode('utf-8', errors='ignore')[:500]}")
+                    # Finalize the in-flight row so it does not stay 'streaming' forever
+                    if req_id and stats_repo:
+                        stats_repo.mark_request_error(req_id)
                     return Response(
                         content=error_bytes,
                         status_code=upstream_resp.status_code,
@@ -1463,8 +1565,10 @@ def create_router(
                         async for chunk in upstream_resp.aiter_bytes():
                             if chunk:
                                 yield chunk
-                    except (httpx.TransportError, httpcore.TransportError) as exc:
+                    except (httpx.TransportError, httpx.StreamError) as exc:
                         logger.warning(f"[Responses] Upstream stream interrupted: {exc}")
+                        if req_id and stats_repo:
+                            stats_repo.mark_request_error(req_id)
                     finally:
                         await upstream_resp.aclose()
                         stream_client = getattr(upstream_resp, "_stream_client", None)
@@ -1472,13 +1576,14 @@ def create_router(
                             await stream_client.aclose()
 
                 def on_responses_stream_complete(cached_toks: int, c_type: str, prompt_toks: Optional[int] = None):
+                    record_cache_zero(req_ctx, session_id, project_name, provider_name, cached_toks, c_type, prompt_toks, req_id)
                     if req_id and stats_repo:
                         if cached_toks > 0 or (prompt_toks and prompt_toks > 0):
                             stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
                         else:
                             stats_repo.mark_request_completed(req_id)
                     if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-                        pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
+                        pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks, original_messages=getattr(req_ctx.request, "_raw_original_messages", None))
                     session_last_activity[session_id] = time.time()
 
                 lock_delegated = True
@@ -1519,7 +1624,8 @@ def create_router(
                     else:
                         stats_repo.mark_request_completed(req_id)
                 if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-                    pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
+                    record_cache_zero(req_ctx, session_id, project_name, provider_name, cached_toks, c_type, prompt_toks, req_id)
+                    pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks, original_messages=getattr(req_ctx.request, "_raw_original_messages", None))
                 session_last_activity[session_id] = time.time()
             return Response(
                 content=resp.content,
@@ -1699,21 +1805,6 @@ def create_router(
             fwd_kwargs = {"raw_body": raw_bytes_to_send} if raw_bytes_to_send is not None else {}
 
             if norm_req.stream:
-                stream_gen = upstream.forward_stream(
-                    "v1/messages", upstream_payload, headers, provider_name, **fwd_kwargs
-                )
-                if streaming_vtool_handler:
-                    stream_gen = streaming_vtool_handler.wrap_stream(
-                        stream_gen=stream_gen,
-                        upstream_payload=upstream_payload,
-                        headers=headers,
-                        provider_name=provider_name,
-                        upstream_client=upstream,
-                        protocol="anthropic",
-                        path="v1/messages",
-                        session_id=session_id,
-                        fwd_kwargs=fwd_kwargs,
-                    )
                 duration_ms = (time.perf_counter() - start_time) * 1000
                 if req_ctx.original_tokens > req_ctx.optimized_tokens:
                     record_savings_event(
@@ -1738,14 +1829,78 @@ def create_router(
                         status="streaming",
                     )
 
+                # Cache Invariant 3: probe upstream status BEFORE returning a
+                # StreamingResponse (mirrors the /v1/responses path).
+                try:
+                    upstream_resp = await upstream.send_stream_request(
+                        "v1/messages", upstream_payload, headers, provider_name, **fwd_kwargs
+                    )
+                except Exception as exc:
+                    logger.error(f"[Proxy] Upstream connection exception on 'v1/messages': {type(exc)}: {exc}", exc_info=True)
+                    if req_id and stats_repo:
+                        stats_repo.mark_request_error(req_id)
+                    return JSONResponse(
+                        {"error": {"message": f"CtxGuard upstream connection error: {str(exc)}", "code": 502}},
+                        status_code=502,
+                    )
+
+                if upstream_resp.status_code >= 400:
+                    try:
+                        error_bytes = await upstream_resp.aread()
+                    finally:
+                        await upstream_resp.aclose()
+                        stream_client = getattr(upstream_resp, "_stream_client", None)
+                        if stream_client:
+                            await stream_client.aclose()
+                    logger.error(f"[Proxy] Upstream error {upstream_resp.status_code} on 'v1/messages': {error_bytes.decode('utf-8', errors='ignore')[:500]}")
+                    if req_id and stats_repo:
+                        stats_repo.mark_request_error(req_id)
+                    return Response(
+                        content=error_bytes,
+                        status_code=upstream_resp.status_code,
+                        media_type=upstream_resp.headers.get("content-type") or "application/json",
+                    )
+
+                async def anthropic_body_generator():
+                    try:
+                        async for chunk in upstream_resp.aiter_bytes():
+                            if chunk:
+                                yield chunk
+                    except (httpx.TransportError, httpx.StreamError) as exc:
+                        logger.warning(f"[Proxy] Upstream stream interrupted mid-flight: {exc}")
+                        if req_id and stats_repo:
+                            stats_repo.mark_request_error(req_id)
+                        for tail in SSEStreamHandler.build_aborted_tail("anthropic", str(exc), model=norm_req.model):
+                            yield tail
+                    finally:
+                        await upstream_resp.aclose()
+                        stream_client = getattr(upstream_resp, "_stream_client", None)
+                        if stream_client:
+                            await stream_client.aclose()
+
+                stream_gen = anthropic_body_generator()
+                if streaming_vtool_handler:
+                    stream_gen = streaming_vtool_handler.wrap_stream(
+                        stream_gen=stream_gen,
+                        upstream_payload=upstream_payload,
+                        headers=headers,
+                        provider_name=provider_name,
+                        upstream_client=upstream,
+                        protocol="anthropic",
+                        path="v1/messages",
+                        session_id=session_id,
+                        fwd_kwargs=fwd_kwargs,
+                    )
+
                 def on_anthropic_stream_complete(cached_toks: int, c_type: str, prompt_toks: Optional[int] = None):
+                    record_cache_zero(req_ctx, session_id, project_name, provider_name, cached_toks, c_type, prompt_toks, req_id)
                     if req_id and stats_repo:
                         if cached_toks > 0 or (prompt_toks and prompt_toks > 0):
                             stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
                         else:
                             stats_repo.mark_request_completed(req_id)
                     if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-                        pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
+                        pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks, original_messages=getattr(req_ctx.request, "_raw_original_messages", None))
                     session_last_activity[session_id] = time.time()
 
                 lock_delegated = True
@@ -1832,7 +1987,8 @@ def create_router(
                         status="completed",
                     )
                 if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-                    pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
+                    record_cache_zero(req_ctx, session_id, project_name, provider_name, cached_toks, c_type, prompt_toks)
+                    pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks, original_messages=getattr(req_ctx.request, "_raw_original_messages", None))
                 session_last_activity[session_id] = time.time()
 
                 response_bytes_to_return = resp.content

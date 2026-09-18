@@ -196,6 +196,10 @@ class CompressionPipeline:
 
     def process_sync(self, request: NormalizedRequest) -> RequestContext:
         """Execute full optimization pipeline on the normalized request synchronously."""
+        # Preserve snapshot of exact incoming original messages for Headroom cache lineage alignment
+        if not hasattr(request, "_raw_original_messages") or request._raw_original_messages is None:
+            request._raw_original_messages = [copy.deepcopy(m) for m in request.messages]
+
         # 1. Estimate initial tokens
         if request.raw_payload and "messages" in request.raw_payload:
             raw_token_count = estimate_tokens_from_payload(request.raw_payload)

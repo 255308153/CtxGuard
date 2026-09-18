@@ -400,7 +400,7 @@ class StreamingVirtualToolHandler:
         }
         logger.info("[StreamingVirtualToolHandler] Launching continuation stream to upstream...")
         continuation_stream = upstream_client.forward_stream(
-            path, continuation_payload, cont_headers, provider_name, **kwargs
+            path, continuation_payload, cont_headers, provider_name, protocol=protocol, **kwargs
         )
         if round < self.response_handler.max_retrieval_rounds:
             continuation_stream = self.wrap_stream(

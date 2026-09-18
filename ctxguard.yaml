@@ -1,138 +1,148 @@
+# ==============================================================================
+# CtxGuard 统一用户配置文件模板 (ctxguard.yaml.example)
+#
+# 使用方法：
+#   1. 复制本文件为 `ctxguard.yaml`（当前工作区）或 `~/.ctxguard/ctxguard.yaml`（全局）
+#      cp ctxguard.yaml.example ctxguard.yaml
+#   2. 按需修改或取消注释下方配置项
+#   3. 启动网关：ctxguard start (自动优先加载 ./ctxguard.yaml)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. 代理服务与网络配置 (Server & Network)
+# ------------------------------------------------------------------------------
 server:
-  host: "127.0.0.1"
-  port: 8787
-  timeout_seconds: 180
-  log_level: "INFO"
-  cors_origins:
+  host: "127.0.0.1"               # 网关监听地址（生产隔离建议 127.0.0.1，局域网共享设为 0.0.0.0）
+  port: 8787                     # 网关监听端口 (默认 8787)
+  timeout_seconds: 180           # 上游 LLM 请求超时上限（秒）
+  log_level: "DEBUG"            # 日志等级：DEBUG | INFO | WARNING | ERROR
+  cors_origins:                  # 跨域白名单（默认允许本地常见客户端）
     - "http://localhost:*"
     - "http://127.0.0.1:*"
+    - "http://127.0.0.1:8787"
+    - "http://127.0.0.1:3000"
 
+# ------------------------------------------------------------------------------
+# Pi Agent / Groq 客户端集成 (新增)
+# ------------------------------------------------------------------------------
+pi_agent:
+  enabled: true                    # 是否启用 Pi Agent / Groq 客户端日志抓取
+  log_dir: "~/.pi/logs"           # Pi Agent 客户端日志目录（可根据实际情况修改）
+  log_level: "DEBUG"              # 抓取日志级别（DEBUG | INFO | WARNING | ERROR）
+  fetch_interval_seconds: 5        # 每 5 秒抓取一次 Pi Agent 的日志
+  include_keywords:               # 只抓取包含这些关键词的日志行
+    - "ctxguard"
+    - "compression"
+    - "dedup"
+    - "ContextTracker"
+    - "dedup_compressor"
+    - "tool_delta"
+  store_in_db: true                # 把 Pi Agent 的使用记录存入 .ctxguard.db
+  auto_learn: true                 # 同时触发自进化学习（提取使用模式）
+  display_in_dashboard: true       # 是否在控制面板中显示 Pi Agent 的使用记录
+
+# ------------------------------------------------------------------------------
+# 2. 上游大模型服务商与路由映射 (Upstream Providers)
+# ------------------------------------------------------------------------------
 upstream:
-  default_provider: "deepseek"
+  default_provider: "anthropic"  # 默认转发上游：anthropic | openai | deepseek | custom
   providers:
-    codex:
-      base_url: "https://api.super-nb.me"
-      api_key_env: "CODEX_API_KEY"
-    deepseek:
-      base_url: "https://api.deepseek.com"
-      api_key_env: "DEEPSEEK_API_KEY"
-    grok:
-      base_url: "https://api.x.ai/v1"
-      api_key_env: "XAI_API_KEY"
     anthropic:
       base_url: "https://api.anthropic.com"
-      api_key_env: "ANTHROPIC_API_KEY"
+      api_key_env: "ANTHROPIC_API_KEY"       # 从环境变量读取 Key（或直接配置 api_key: "sk-..."）
     openai:
       base_url: "https://api.openai.com"
       api_key_env: "OPENAI_API_KEY"
+    deepseek:
+      base_url: "https://api.deepseek.com"
+      api_key_env: "DEEPSEEK_API_KEY"
     antigravity:
-      base_url: "http://127.0.0.1:8045/v1"
-      api_key_env: "ANTIGRAVITY_API_KEY"
+      base_url: "http://127.0.0.1:8045/v1"    # Antigravity Tools 本地服务：gemini / claude 系列
+      api_key: "sk-759b2996672f428ca32aed74d7448915"
+    custom:
+      base_url: "http://127.0.0.1:11434"      # 支持本地 Ollama / vLLM / LocalAI
+      api_key: "ollama"
 
+# ------------------------------------------------------------------------------
+# 3. Layer 2: 会话内容指纹去重器 (SHA-256 Dedup & sqz 模式)
+# ------------------------------------------------------------------------------
 dedup:
-  enabled: true
-  min_chars: 120
-  max_records: 1000
-  exclude_patterns:
+  enabled: true                  # 是否启用内容指纹去重（大幅降低重复文件读写 Token）
+  min_chars: 120                 # 触发去重的最小字符阈值（短文本不进行指纹替换）
+  exclude_patterns:              # 排除模式（支持 glob 通配符，匹配路径或特定名称时不予去重）
     - "*.env*"
     - "*secret*"
     - "*credential*"
   tool_injection:
-    enabled: false
-    tool_name: "ctx_expand"
+    enabled: true                # 是否在工具列表中自动注入反查工具
+    tool_name: "ctx_expand"      # 注入给模型的工具名称
     description: "Expand compressed context reference by ref_id if you need full details."
 
+# ------------------------------------------------------------------------------
+# 4. Layer 3: 结构感知清洗与折叠器 (Structural Compressor)
+# ------------------------------------------------------------------------------
 structural_compression:
   log_cleaner:
-    enabled: true
-    strip_ansi: true
-    merge_progress_bars: true
-    fold_repeated_stacktraces: true
-    stacktrace_threshold: 3
-    max_log_lines: 120
-    head_lines: 25
-    tail_lines: 75
+    enabled: true                # 开启终端与日志清洗
+    strip_ansi: true             # 移除 ANSI 颜色与光标控制码 (\x1b\[...)
+    merge_progress_bars: true    # 自动合并下载/构建进度条，仅保留最终进度
+    fold_repeated_stacktraces: true # 自动折叠重复出现的相同堆栈异常
+    stacktrace_threshold: 3      # 连续相同堆栈出现 >= 3 次时折叠为 [Repeated N times]
+    custom_patterns: []          # 用户自定义正则替换列表，例如：
+      # - pattern: '(?i)bearer\s+[a-z0-9_\-\.]+'
+      #   replacement: '[AUTH_TOKEN_MASKED]'
 
   json_compressor:
-    enabled: true
-    min_array_length: 3
-    ignore_keys:
+    enabled: true                # 开启 JSON 数组结构扁平化
+    min_array_length: 3          # 数组中相同结构的字典数量 >= 3 时触发 schema+rows 压缩
+    ignore_keys:                 # 绝对不折叠/保留原样的 JSON Key 白名单
       - "error"
+      - "status"
+      - "message"
 
-  ast_compressor:
-    enabled: true
-    min_lines: 35
-    preserve_docstrings: true
-
-  git_diff:
-    enabled: true
-    min_lines: 15
-    max_context_lines: 1
-
-  secret_redactor:
-    enabled: true
-    mask_token: "<REDACTED_SECRET>"
-
-  tool_delta:
-    enabled: true
-    min_items: 15
-    max_delta_ratio: 0.35
-    max_delta_items: 20
-
-thinking_manager:
-  enabled: false
-  strip_deepseek_reasoning: false
-  strip_gemini_thought: false
-  anthropic_max_thinking_tokens: 16384
-
+# ------------------------------------------------------------------------------
+# 5. Layer 4: 自适应多档位剪枝流水线 (Adaptive Pruner)
+# ------------------------------------------------------------------------------
 adaptive_pipeline:
-  enabled: true
+  enabled: true                  # 是否开启动态档位调度
   levels:
-    - name: "level_1"
+    - name: "level_1"            # 档位 1: 短上下文 (< 16k tokens)
       max_tokens: 16384
-      compression_mode: "lossless"
+      compression_mode: "lossless" # 纯无损清洗（仅执行 Dedup + Log + JSON 清洗）
       prune_ratio: 1.0
-    - name: "level_2"
+    - name: "level_2"            # 档位 2: 中长上下文 (16k ~ 64k tokens)
       max_tokens: 65536
-      compression_mode: "lossless"
-      prune_ratio: 1.0
-    - name: "level_3"
+      compression_mode: "lightweight"
+      prune_ratio: 0.85          # 轻度精简多余换行与占位符
+    - name: "level_3"            # 档位 3: 超长上下文 (> 64k tokens)
       max_tokens: 200000
-      compression_mode: "lossless"
-      prune_ratio: 1.0
-      use_onnx: false
-  protected_keywords:
+      compression_mode: "deep"
+      prune_ratio: 0.60          # 深度剪枝
+      use_onnx: false            # 是否启用 ONNX INT8 微型模型剪枝（需安装 [onnx] 可选依赖）
+  protected_keywords:            # 剪枝时绝对受保护、禁止剔除的关键词/标识符
     - "CRITICAL"
     - "FATAL"
     - "TODO"
     - "FIXME"
     - "EXCEPTION"
 
+# ------------------------------------------------------------------------------
+# 6. Layer 5: Prompt Cache 守护者 (Prefix Freezer)
+# ------------------------------------------------------------------------------
 cache_guard:
-  freeze_system_prompt: true
-  freeze_prefix_rounds: 2
-  auto_anthropic_cache_control: true
-  cache_ttl_seconds: 300
-  cold_recompact_enabled: true
-  provider_cache_ttls:
-    gemini: 300
-    google: 300
-    antigravity: 300
-    openai: 300
-    deepseek: 300
-    anthropic: 300
-    default: 300
+  freeze_system_prompt: true     # 严格保卫 System Prompt 字节级绝对不变
+  freeze_prefix_rounds: 2        # 严格冻结前 N 轮历史对话（保障官方 Prompt Cache 命中）
+  auto_anthropic_cache_control: true # 自动为 Anthropic 协议请求在关键轮次注入 ephemeral cache 标记
+  cache_zero_recording_enabled: true # 自动记录上游报告缓存读取为 0 的轮次
+  cache_zero_recording_dir: ".ctxguard/cache_zero" # 缓存零诊断 JSONL 文件目录
 
+# ------------------------------------------------------------------------------
+# 7. Layer 6: 离线自进化与规则落盘引擎 (Offline Learn Engine)
+# ------------------------------------------------------------------------------
 learn:
-  storage_db: ".ctxguard.db"
-  detect_loop_threshold: 2
-  target_files:
-    - path: "AGENTS.md"
-      marker: "CTXGUARD_AUTO_RULES"
-    - path: "INSTRUCTIONS.md"
-      marker: "CTXGUARD_AUTO_RULES"
-    - path: ".pi/rules.md"
-      marker: "CTXGUARD_AUTO_RULES"
+  storage_db: ".ctxguard.db"     # 本地单文件 SQLite 数据库路径
+  detect_loop_threshold: 3       # 连续 3 次相似工具调用判为死循环
+  target_files:                  # 离线自学习提炼规则后，幂等更新的目标规则文件列表
     - path: "CLAUDE.local.md"
       marker: "CTXGUARD_AUTO_RULES"
     - path: ".cursorrules"
@@ -140,12 +150,53 @@ learn:
     - path: ".windsurfrules"
       marker: "CTXGUARD_AUTO_RULES"
 
-proactive_expansion:
-  enabled: false
-  relevance_threshold: 0.35
-  max_expansions: 2
-  max_content_chars: 1200
-  max_context_age_seconds: 300.0  # 5-minute TTL to evict stale command outputs
-  max_contexts: 100               # LRU capacity limit
-  skip_in_cache_mode: false       # Set true to protect KV cache stability when session has frozen prefix
+# ------------------------------------------------------------------------------
+# 8. Pi Agent / Groq 客户端集成 (新增)
+# ------------------------------------------------------------------------------
+pi_agent:
+  enabled: true                    # 是否启用 Pi Agent / Groq 客户端日志抓取
+  log_dir: "~/.pi/logs"           # Pi Agent 客户端日志目录（可根据实际情况修改）
+  log_level: "DEBUG"              # 抓取日志级别（DEBUG | INFO | WARNING | ERROR）
+  fetch_interval_seconds: 5        # 每 5 秒抓取一次 Pi Agent 的日志
+  include_keywords:               # 只抓取包含这些关键词的日志行
+    - "ctxguard"
+    - "compression"
+    - "dedup"
+    - "ContextTracker"
+    - "dedup_compressor"
+    - "tool_delta"
+  store_in_db: true                # 把 Pi Agent 的使用记录存入 .ctxguard.db
+  auto_learn: true                 # 同时触发自进化学习（提取使用模式）
+  display_in_dashboard: true       # 是否在控制面板中显示 Pi Agent 的使用记录
 
+# ------------------------------------------------------------------------------
+# 9. Proactive Expansion 配置（主动上下文回填）
+# ------------------------------------------------------------------------------
+proactive_expansion:
+  enabled: true                    # 是否启用主动上下文回填（关键：必须开启才能看到 Grok/Pi 的使用记录）
+  relevance_threshold: 0.45        # 相关度阈值（越高越严格）
+  max_expansions: 3                # 每次最多回填 3 条上下文
+  max_content_chars: 800           # 回填内容字符上限
+  max_context_age_seconds: 300     # 上下文最老 5 分钟
+  max_contexts: 100                # LRU 缓存上限
+  skip_in_cache_mode: false        # 是否在缓存模式下跳过回填（保护 KV Cache）
+  blocked_keywords:                 # 永远不回填的关键词
+    - "CTXGUARD_AUTO_RULES"
+    - "Do not repeatedly execute"
+    - "incremental paging queries"
+    - "pytest"
+    - "git status"
+    - "git diff"
+
+# ------------------------------------------------------------------------------
+# 10. Dashboard 配置
+# ------------------------------------------------------------------------------
+dashboard:
+  enabled: true                    # 是否启用控制面板
+  port: 8787                       # 控制面板端口
+  refresh_interval_seconds: 5      # 控制面板刷新间隔
+  max_sessions_to_display: 20      # 每次最多显示 20 个活跃 Pi Agent 会话
+  show_compression_details: true   # 是否显示每个会话的压缩率详情
+  show_grok_usage: true            # 是否显示 Groq/Pi Agent 的使用记录
+  show_token_flow: true            # 是否显示 Token 流量趋势图
+  show_knowledge_graph: true       # 是否显示跨 Agent 知识图谱
