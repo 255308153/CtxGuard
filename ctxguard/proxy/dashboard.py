@@ -79,15 +79,14 @@ def get_dashboard_html() -> str:
   <!-- Top Navigation Header (Minimalist Frontier Monitor Style) -->
   <header class="border-b border-[#222222] bg-[#0c0c0c] sticky top-0 z-50">
     <div class="max-w-[1560px] mx-auto px-4 sm:px-6 lg:px-8 h-12 flex items-center justify-between">
-      <!-- Left: Navigation Tabs (overview / metrics / rules / graph) -->
+      <!-- Left: Navigation Tabs (metrics / rules / graph) -->
       <div class="flex items-center space-x-6 h-full">
         <div class="flex items-center space-x-2 mr-2">
           <span class="inline-block w-2 h-2 rounded-full bg-[#ff5722] animate-pulse"></span>
           <span class="text-sm font-semibold tracking-wider text-white uppercase">CtxGuard</span>
         </div>
         <nav class="flex items-center space-x-5 h-full text-xs font-mono">
-          <a href="#section-overview" class="tab-active h-full flex items-center px-1 font-medium transition-colors">overview</a>
-          <a href="#section-traffic" class="tab-inactive h-full flex items-center px-1 transition-colors">metrics</a>
+          <a href="#section-traffic" class="tab-active h-full flex items-center px-1 font-medium transition-colors">metrics</a>
           <a href="#section-rules" class="tab-inactive h-full flex items-center px-1 transition-colors">rules</a>
           <a href="#section-graph" class="tab-inactive h-full flex items-center px-1 transition-colors">graph</a>
         </nav>
@@ -118,36 +117,6 @@ def get_dashboard_html() -> str:
   </header>
 
   <main class="flex-1 max-w-[1560px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-  <!-- SECTION: notices (System Real-Time Log & Anomaly Stream) -->
-    <section id="section-overview" class="bg-[#111111] border border-[#222222] rounded-md p-4 space-y-3 font-mono">
-      <div class="flex items-center justify-between border-b border-[#1c1c1c] pb-2">
-        <div class="flex items-center space-x-2">
-          <span class="text-xs font-semibold text-[#888888] lowercase">notices</span>
-          <span class="text-[10px] text-[#555555]">// live telemetry & incident mitigation</span>
-        </div>
-        <div class="flex items-center space-x-3 text-[11px] text-[#666666]">
-          <span>status: <strong class="text-[#2979ff] font-normal">NORMAL</strong></span>
-          <span class="text-[#333333]">|</span>
-          <span id="gateway-version">v0.2.5</span>
-        </div>
-      </div>
-
-      <!-- Compact Notice Rows -->
-      <div class="space-y-2 text-xs text-[#aaaaaa]" id="notices-container">
-        <div class="flex items-start space-x-4 border-b border-[#181818] pb-1.5">
-          <span class="text-[#555555] w-20 flex-shrink-0">just now</span>
-          <span class="text-[#dddddd] flex-1">gateway active. KV-cache live zone lock engaged; zero cross-turn prompt fragmentation detected.</span>
-        </div>
-        <div class="flex items-start space-x-4 border-b border-[#181818] pb-1.5">
-          <span class="text-[#555555] w-20 flex-shrink-0">12m ago</span>
-          <span class="text-[#999999] flex-1">CCR response handler intercepted 0 virtual tools; all downstream completions streamed smoothly.</span>
-        </div>
-        <div class="flex items-start space-x-4">
-          <span class="text-[#555555] w-20 flex-shrink-0">1h 05m ago</span>
-          <span class="text-[#888888] flex-1">offline rule carry-forward initialized with round-trip markdown markers preserved.</span>
-        </div>
-      </div>
-    </section>
 
     <!-- SECTION: Active Engine / Execution Progress Cards -->
     <div class="space-y-3">
@@ -158,14 +127,13 @@ def get_dashboard_html() -> str:
             <span class="inline-block w-2 h-2 rounded-full bg-[#ff5722]"></span>
             <span class="text-xs font-semibold text-white tracking-wide">ctxguard-gateway-pro</span>
             <span class="text-[11px] text-[#666666]">in progress</span>
-            <span class="text-sm font-bold text-white ml-2" id="kpi-step-count">turn <span id="stat-total-reqs">0</span></span>
+            <span class="text-sm font-bold text-white ml-2" id="kpi-step-count">requests <span id="stat-total-reqs">0</span></span>
           </div>
 
           <div class="flex items-center space-x-4 text-xs text-[#777777]">
-            <span id="gateway-uptime">up 2h 45m</span>
             <!-- Progress Bar -->
             <div class="w-36 bg-[#1a1a1a] h-1.5 rounded-full overflow-hidden flex">
-              <div id="kpi-progress-bar" class="bg-[#2979ff] h-full" style="width: 78%"></div>
+              <div id="kpi-progress-bar" class="bg-[#2979ff] h-full" style="width: 0%"></div>
             </div>
             <span class="text-[11px] text-[#555555]"><span id="stat-saved-percent">0%</span> optimized</span>
           </div>
@@ -175,7 +143,7 @@ def get_dashboard_html() -> str:
         <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 pt-1">
           <div>
             <div class="text-[10px] text-[#666666] uppercase tracking-wider">SAVED RATIO · AVG</div>
-            <div class="text-lg font-bold text-white mt-0.5"><span id="stat-saved-percent-dup">0</span>% <span class="text-[10px] text-[#ff7043] font-normal">▲ 12.4%</span></div>
+            <div class="text-lg font-bold text-white mt-0.5"><span id="stat-saved-percent-dup">0</span>%</div>
           </div>
           <div>
             <div class="text-[10px] text-[#666666] uppercase tracking-wider">SAVED TOKENS</div>
@@ -201,7 +169,7 @@ def get_dashboard_html() -> str:
       </div>
     </div>
     <!-- SECTION: benchmarks & real-time telemetry -->
-    <section id="section-traffic" class="bg-[#111111] border border-[#222222] rounded-md p-4 space-y-4 font-mono">
+    <section id="section-traffic" class="bg-[#111111] border border-[#222222] rounded-md p-4 space-y-4 font-mono scroll-mt-16">
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#1c1c1c] pb-3">
         <div class="flex items-center space-x-3">
           <span class="text-xs font-semibold text-[#888888] lowercase">benchmarks & telemetry</span>
@@ -401,7 +369,7 @@ def get_dashboard_html() -> str:
     </section>
 
     <!-- SECTION 2:  记忆中枢与自进化规则大盘 (Dedicated Memory Hub) -->
-    <section class="bg-[#111111] border border-[#222222] rounded-md p-4 space-y-4 font-mono">
+    <section id="section-rules" class="bg-[#111111] border border-[#222222] rounded-md p-4 space-y-4 font-mono scroll-mt-16">
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-[#222222]">
         <div>
           <h2 class="text-base font-bold text-white flex items-center space-x-2">
@@ -472,7 +440,7 @@ def get_dashboard_html() -> str:
     </section>
 
     <!-- SECTION 3:  个人记忆知识图谱中枢 (Personal Knowledge Graph - SQLiteGraphStore) -->
-    <section class="bg-[#111111] border border-[#222222] rounded-md p-4 space-y-4 font-mono">
+    <section id="section-graph" class="bg-[#111111] border border-[#222222] rounded-md p-4 space-y-4 font-mono scroll-mt-16">
       <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-[#222222]">
         <div>
           <h2 class="text-base font-bold text-white flex items-center space-x-2">
@@ -1328,11 +1296,26 @@ export class UserController {
         const summary = data.summary || {};
         setText('stat-saved-tokens', (summary.total_saved_tokens || 0).toLocaleString());
         setText('stat-saved-percent', `${summary.overall_saved_percent || 0}%`);
+        setText('stat-saved-percent-dup', summary.overall_saved_percent || 0);
         setText('stat-raw-tokens', (summary.total_raw_tokens || 0).toLocaleString());
         setText('stat-opt-tokens', (summary.total_optimized_tokens || 0).toLocaleString());
         setText('stat-dollars-saved', `$${(summary.estimated_dollars_saved || 0).toFixed(4)}`);
+        setText('stat-dollars-saved-dup', `$${(summary.estimated_dollars_saved || 0).toFixed(2)}`);
+        setText('stat-total-reqs', (summary.total_requests || 0).toLocaleString());
         setText('chart-peak-raw', (summary.total_raw_tokens || 0).toLocaleString());
         setText('chart-peak-saved', (summary.total_saved_tokens || 0).toLocaleString());
+
+        // Wire the compression progress bar to the real overall saved ratio
+        const progressBar = document.getElementById('kpi-progress-bar');
+        if (progressBar) {
+          const savedPct = Math.max(0, Math.min(100, summary.overall_saved_percent || 0));
+          progressBar.style.width = `${savedPct}%`;
+        }
+
+        // Total sessions = distinct conversation windows across all projects
+        const projSummaries = data.project_summaries || [];
+        const totalSessions = projSummaries.reduce((acc, p) => acc + (p.session_count || 0), 0);
+        setText('stat-total-sessions', totalSessions.toLocaleString());
         
         const hitPercent = (summary.cache_hit_percent !== undefined) ? summary.cache_hit_percent : 0;
         setText('stat-cache-hit-percent', `${hitPercent}%`);

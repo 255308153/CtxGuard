@@ -118,6 +118,8 @@ class UpstreamClient:
 
         if protocol == "anthropic":
             if api_key:
+                # Remove any existing authorization/x-api-key variants to prevent duplicates
+                headers = {k: v for k, v in headers.items() if k.lower() not in ("x-api-key", "authorization")}
                 headers["x-api-key"] = api_key
             if not any(k.lower() == "anthropic-version" for k in headers):
                 headers["anthropic-version"] = "2023-06-01"
@@ -127,10 +129,12 @@ class UpstreamClient:
         else:
             # OpenAI / Codex style
             if api_key:
+                # Remove existing authorization variants (e.g. authorization, Authorization) to prevent duplicate header HTTP 400 from Cloudflare
+                headers = {k: v for k, v in headers.items() if k.lower() != "authorization"}
                 headers["Authorization"] = f"Bearer {api_key}"
             
             # Inspect OAuth JWT bearer for ChatGPT account ID if not already present
-            auth_val = headers.get("Authorization") or headers.get("authorization")
+            auth_val = next((v for k, v in headers.items() if k.lower() == "authorization"), None)
             if auth_val and not any(k.lower() == "chatgpt-account-id" for k in headers):
                 scheme, _, token = auth_val.partition(" ")
                 if scheme.lower() == "bearer" and token.count(".") >= 2:
@@ -149,7 +153,17 @@ class UpstreamClient:
                     except Exception:
                         pass
 
-        return headers
+        # Final pass: Deduplicate headers case-insensitively, keeping the canonical casing
+        clean_headers: Dict[str, str] = {}
+        for k, v in headers.items():
+            # Check if any lower-case version exists
+            existing_key = next((ek for ek in clean_headers if ek.lower() == k.lower()), None)
+            if existing_key:
+                clean_headers[existing_key] = v
+            else:
+                clean_headers[k] = v
+
+        return clean_headers
 
     def build_full_url(self, provider: ProviderConfig, url_path: str) -> str:
         """Construct normalized full URL avoiding duplicate /v1 segments."""

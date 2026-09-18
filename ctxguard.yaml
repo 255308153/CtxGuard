@@ -56,6 +56,12 @@ upstream:
     deepseek:
       base_url: "https://api.deepseek.com"
       api_key_env: "DEEPSEEK_API_KEY"
+    xai:
+      base_url: "https://api.x.ai/v1"
+      api_key_env: "XAI_API_KEY"
+    grok:
+      base_url: "https://api.x.ai/v1"
+      api_key_env: "XAI_API_KEY"
     antigravity:
       base_url: "http://127.0.0.1:8045/v1"    # Antigravity Tools 本地服务：gemini / claude 系列
       api_key: "sk-759b2996672f428ca32aed74d7448915"
