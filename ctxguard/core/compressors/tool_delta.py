@@ -20,10 +20,12 @@ class ToolDeltaCompressor(BaseCompressor):
     def __init__(
         self,
         config: ToolDeltaConfig,
-        fingerprint_repo: Optional[FingerprintRepository] = None
+        fingerprint_repo: Optional[FingerprintRepository] = None,
+        tool_injection_enabled: bool = True,
     ):
         self.config = config
         self.fingerprint_repo = fingerprint_repo
+        self.tool_injection_enabled = tool_injection_enabled
         # session_id -> { category_key -> Set[item_line] }
         self.session_snapshots: Dict[str, Dict[str, Set[str]]] = {}
         self.session_fingerprints: Dict[str, Dict[str, str]] = {}
@@ -117,7 +119,9 @@ class ToolDeltaCompressor(BaseCompressor):
 
         # Case 1: Unchanged state
         if total_changes == 0:
-            return f"[CtxGuard Tool Delta: State unchanged ({total_items} items identical to previous check). Use ctx_expand('{short_sha}') for full output]"
+            if self.tool_injection_enabled:
+                return f"[CtxGuard Tool Delta: State unchanged ({total_items} items identical to previous check). Use ctx_expand('{short_sha}') for full output]"
+            return f"[CtxGuard Tool Delta: State unchanged ({total_items} items identical to previous check)]"
 
         # Case 2: Small delta within thresholds
         delta_ratio = total_changes / max(1, total_items)
@@ -134,7 +138,10 @@ class ToolDeltaCompressor(BaseCompressor):
                 delta_lines.append(f"- Removed ({len(removed)}):")
                 for item in removed:
                     delta_lines.append(f"  - {item}")
-            delta_lines.append(f"({unchanged_count} items unchanged. Use ctx_expand('{short_sha}') for full output)")
+            if self.tool_injection_enabled:
+                delta_lines.append(f"({unchanged_count} items unchanged. Use ctx_expand('{short_sha}') for full output)")
+            else:
+                delta_lines.append(f"({unchanged_count} items unchanged)")
             return "\n".join(delta_lines)
 
         # Massive changes: pass through

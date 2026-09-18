@@ -1270,7 +1270,12 @@ export class UserController {
       }
     }
 
+    let isRefreshing = false;
+    let refreshCycle = 0;
+
     async function refreshData() {
+      if (isRefreshing) return;
+      isRefreshing = true;
       try {
         const queryParam = (filterState.project && filterState.project !== 'ALL')
           ? `?project=${encodeURIComponent(filterState.project)}`
@@ -1299,11 +1304,16 @@ export class UserController {
         renderFilteredViews();
         updateTrafficChart(globalRecentData);
 
-        // Also fetch memory stats and graph stats
-        refreshMemoryStats();
-        refreshGraphStats();
+        // Fetch memory stats and graph stats periodically (initial load and once every 6 cycles = 30s)
+        refreshCycle++;
+        if (refreshCycle % 6 === 1) {
+          refreshMemoryStats();
+          refreshGraphStats();
+        }
       } catch (err) {
         console.error('Failed to load stats:', err);
+      } finally {
+        isRefreshing = false;
       }
     }
 
@@ -2330,13 +2340,13 @@ export class UserController {
       alert('已复制: ' + text);
     }
 
-    // Auto-load & auto-refresh every 2.5s
+    // Auto-load & auto-refresh every 5s
     window.addEventListener('DOMContentLoaded', () => {
       setViewMode('flat');
       refreshData();
       initGraphCanvas();
       loadSample('code');
-      setInterval(refreshData, 2500);
+      setInterval(refreshData, 5000);
     });
   </script>
 </body>

@@ -24,9 +24,11 @@ class GitDiffCompressor(BaseCompressor):
         self,
         config: GitDiffCompressorConfig,
         fingerprint_repo: Optional[FingerprintRepository] = None,
+        tool_injection_enabled: bool = True,
     ):
         self.config = config
         self.fingerprint_repo = fingerprint_repo
+        self.tool_injection_enabled = tool_injection_enabled
         self.session_fingerprints: Dict[str, Dict[str, str]] = {}
 
     @property
@@ -57,7 +59,10 @@ class GitDiffCompressor(BaseCompressor):
                 if max_ctx > 0:
                     result.extend(context_buf[:max_ctx])
                 skipped = len(context_buf) - (2 * max_ctx if max_ctx > 0 else 0)
-                result.append(f" ... ({skipped} context lines folded, ctx_expand({short_sha})) ...")
+                if self.tool_injection_enabled:
+                    result.append(f" ... ({skipped} context lines folded, ctx_expand({short_sha})) ...")
+                else:
+                    result.append(f" ... ({skipped} context lines folded) ...")
                 # Keep trailing max_ctx lines
                 if max_ctx > 0:
                     result.extend(context_buf[-max_ctx:])

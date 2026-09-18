@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://img.shields.io/badge/tests-169%20passed-success.svg)]()
+[![Tests](https://img.shields.io/badge/tests-205%20passed-success.svg)]()
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688.svg)](https://fastapi.tiangolo.com)
 
 </div>
@@ -78,16 +78,23 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 - **多凭证类型识别**：自动拦截并脱敏 OpenAI / Anthropic / GitHub / AWS / JWT 密钥及 Bearer Tokens。
 - **私钥与证书保护**：PEM 私钥证书（`-----BEGIN PRIVATE KEY-----`）与包含密码的数据库连接字符串（`postgres://user:password@host:5432/db`）自动打码，杜绝凭据外泄风险。
 
-### 7. 可逆内容指纹池与纯内存热缓存 (Dedup & In-Memory LRU)
-- **纯内存热 LRU 纳秒级检索**：基于 10,000 容量的内存 `OrderedDict` 维护热点指纹索引，读路径 100% 内存 O(1) 命中，杜绝频繁磁盘 I/O 与 SSD 写入磨损。
-- **历史前缀去重与批量惰性持久化**：提取请求中长文本块计算 SHA-256 指纹，已缓存前缀自动跳过重复入库；SQLite 仅作为持久化保底并采用每 250 次写入批量淘汰，长会话磁盘 I/O 削减 99% 以上。
+### 7. 可逆内容指纹池与自闭环响应拦截 (Dedup, LRU & CCR Loop)
+- **网关层自闭环响应拦截 (Headroom-Aligned CCR Loop)**：借鉴 Headroom 响应处理机制，在网关层截断拦截云端大模型发出的 `tool_calls: ctx_expand`。网关本地 0.1ms 提取原文并自动在后台发起第 2 轮续写（Continuation Request），向下游客户端（Cline, RooCode, Claude Code, Cursor）彻底屏蔽虚拟工具调用过程，100% 杜绝 `Tool not found` 崩溃，真正实现无感可逆。
+- **单会话去重铁律与零跨会话致盲**：内容去重严格锁定在单会话内（`Storage Invariant 2`），新会话首读文件 100% 全量放行，彻底消除新会话“两眼一抹黑”的致盲隐患；SQLite 全局指纹库专注扮演 CAS（内容寻址存储）永久还原底座。
+- **纯净占位符清洗 (No-Deception Placeholder)**：禁用工具注入时，全面清洗所有压缩模块的折叠占位符，严禁输出任何 `Use ctx_expand` 诱导信息，杜绝欺骗大模型。
+- **纯内存热 LRU 纳秒级检索**：基于 10,000 容量的内存 `OrderedDict` 维护热点指纹索引，读路径 100% 内存 O(1) 命中，杜绝频繁磁盘 I/O 与 SSD 写入磨损；结合批量惰性持久化削减 99% 以上磁盘事务提交。
 - **CPU 密集流水线多线程异步卸载**：通过 `asyncio.to_thread` 将 AST 解析与正则分词卸载至工作线程池，主事件循环零阻塞，多 Agent 并发无排队延迟。
-- **主动感知回填 (Proactive Context Expansion)**：结合 `ContextTracker` 在用户提问前置自适应识别并回填关键上下文，无需模型额外发起工具调用。
+- **主动感知回填 (Proactive Context Expansion)**：结合 `ContextTracker` 7 重防御体系，在用户提问前置自适应识别并回填关键上下文，防范 Prompt 膨胀；严格限制仅在活区（Live Zone）末尾追加，绝不篡改历史前缀，完美守护云端 KV Cache 90%+ 稳定命中率。
 
-### 8. 时序知识图谱与离线自进化引擎 (Memory & Learn)
-- **多模态语义检索与图谱记忆**：结合 BM25 词频统计、稠密向量嵌入以及图谱实体关联进行三路加权打分，精准召回环境事实及开发偏好，动态注入当前轮次用户提问尾部。
-- **转折点（Pivot）因果归因**：后台异步扫描交互轨迹，定位“工具连续报错 -> 调整参数 -> 执行成功”的关键行为序列，自动提取路径修正与环境运行规范。
-- **原子标记区域同步**：通过专用的注释边界标记，将提炼后的最佳实践以原子覆盖方式写入项目配置文件（`CLAUDE.local.md`、`.cursorrules`），绝不覆盖用户手动编写的内容。
+### 8. 时序知识图谱与多 Agent 插件化自进化学习引擎 (Memory & Learn)
+- **跨 Agent 生态插件化扫描体系**：借鉴 Headroom 架构，全面解耦为插件体系（`ClaudePlugin`、`CtxGuardGatewayPlugin`、`GeminiPlugin`、`CodexPlugin`）。不仅能离线扫描 Claude Code、Gemini CLI、Codex 等外部工具轨迹，更能将 CtxGuard 自身网关实时中转的多 Agent 请求直接接入分析。
+- **三级自适应推理分析器 (3-Tier Analyzer)**：
+  - **Tier 1 (LLM 语义分析)**：通过 LiteLLM / 目标大模型执行因果归因与规则精准提炼；
+  - **Tier 2 (本地 CLI 免 Key 模式)**：自动检测并调用宿主机已安装的 `claude -p` / `gemini -p` / `codex exec` 命令行，直接复用终端现有订阅权限，无需额外配置昂贵 API Key；
+  - **Tier 3 (离线启发式兜底)**：在断网或无模型环境下，自动降级为本地无损规则提取器，保证任何环境下永不崩溃。
+- **Round-Trip 往返解析与经验规则结转 (Carried Forward)**：执行学习前自动反向解析项目现有规则文件（`AGENTS.md`、`.cursorrules` 等）；新提炼规则增量更新，历史学到但本轮未触发的冷门规则**自动结转保留**，彻底杜绝“重新学习冲掉历史宝贵经验”的问题。
+- **Token 浪费物理计量与加权排序**：精准识别 Agent 死循环调用的分页参数与重复指令，量化计算循环浪费的 Token 体积，高价值避坑规则自动置顶排布。
+- **多模态语义检索与图谱记忆**：结合 BM25 词频统计、稠密向量嵌入以及图谱实体关联进行三路加权打分，精准召回环境事实及开发偏好。
 
 ---
 
@@ -229,7 +236,9 @@ ctxguard wrap <agent>     # 自动感知中转配置并直接一键拉起目标 
 ctxguard env --patch      # 自动扫描并改写本地客户端配置指向代理网关
 ctxguard stats            # 查看网关当前的吞吐量、压缩效率与近期待处理请求
 ctxguard savings          # 查看长周期的 Token 与成本节约明细
-ctxguard learn --apply    # 手动触发历史轨迹复盘并更新项目规则
+ctxguard learn --dry-run  # 预览复盘提炼的避坑经验与浪费权重（不写磁盘）
+ctxguard learn --apply    # 触发自进化学习，智能结转并写入项目规则 (AGENTS.md / .cursorrules)
+ctxguard learn -a claude  # 指定仅扫描特定 Agent 生态 (auto / claude / ctxguard / gemini / codex)
 ctxguard env              # 查看或导出各客户端的环境变量配置
 ```
 

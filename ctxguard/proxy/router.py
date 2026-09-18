@@ -1,9 +1,10 @@
 """API route definitions for OpenAI and Anthropic proxy endpoints, Web Dashboard, and Admin APIs."""
 
+import asyncio
 import time
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 import orjson
@@ -26,6 +27,11 @@ from ctxguard.proxy.adapters.anthropic import AnthropicAdapter
 from ctxguard.proxy.dashboard import get_dashboard_html
 from ctxguard.proxy.upstream import UpstreamClient
 from ctxguard.proxy.sse import SSEStreamHandler
+from ctxguard.proxy.virtual_tool_handler import (
+    VirtualToolResponseHandler,
+    StreamingVirtualToolHandler,
+)
+import httpx
 from ctxguard.storage.repository_stats import StatsRepository
 from ctxguard.storage.repository_fingerprint import FingerprintRepository
 from ctxguard.storage.repository_graph import SQLiteGraphStore
@@ -230,6 +236,11 @@ def create_router(
     openai_adapter = OpenAIAdapter()
     anthropic_adapter = AnthropicAdapter()
     virtual_tool_executor = VirtualToolExecutor(fingerprint_repo=fingerprint_repo, graph_store=graph_store)
+    vtool_handler = VirtualToolResponseHandler(
+        fingerprint_repo=fingerprint_repo,
+        max_retrieval_rounds=getattr(getattr(config, "dedup", None), "max_retrieval_rounds", 3),
+    )
+    streaming_vtool_handler = StreamingVirtualToolHandler(vtool_handler)
     pb_enabled = getattr(getattr(config, "piggyback_extraction", None), "enabled", True)
     graph_engine = MemoryGraphEngine(graph_store, piggyback_enabled=pb_enabled) if graph_store else None
     if semantic_cache is None:
@@ -240,6 +251,21 @@ def create_router(
     session_last_activity: Dict[str, float] = {}
     sim_state: Dict[str, Any] = {"session_id": f"ses_agent_{int(time.time()) % 10000:04d}", "turn": 0}
 
+    # Dashboard API Caches (Thread-safe read, async event-loop offloading)
+    _stats_cache: Dict[str, Tuple[float, Any]] = {}
+    _memory_stats_cache: Dict[str, Any] = {"timestamp": 0.0, "data": None}
+    _graph_stats_cache: Dict[str, Any] = {"timestamp": 0.0, "data": None}
+    _graph_full_cache: Dict[str, Any] = {"timestamp": 0.0, "data": None}
+    _graph_entities_cache: Dict[str, Tuple[float, Any]] = {}
+
+    def _invalidate_graph_cache():
+        _graph_stats_cache["data"] = None
+        _graph_full_cache["data"] = None
+        _graph_entities_cache.clear()
+
+    def _invalidate_memory_cache():
+        _memory_stats_cache["data"] = None
+
     # --------------------------------------------------------------------------
     # Web Dashboard Endpoints
     # --------------------------------------------------------------------------
@@ -249,9 +275,7 @@ def create_router(
         """Serve the interactive CtxGuard Web Control Panel."""
         return HTMLResponse(content=get_dashboard_html(), status_code=200)
 
-    @router.get("/api/stats")
-    async def get_dashboard_stats(project: Optional[str] = None):
-        """API returning summary statistics, project breakdowns, and recent requests directly from SQLite."""
+    def _compute_dashboard_stats(project: Optional[str]):
         if stats_repo:
             summary = stats_repo.get_summary(project_name=project)
             project_summaries = stats_repo.get_project_summaries()
@@ -272,9 +296,20 @@ def create_router(
             recent = []
         return {"summary": summary, "project_summaries": project_summaries, "recent": recent}
 
-    @router.get("/api/memory/stats")
-    async def get_memory_stats():
-        """API returning memory repository metrics and learned knowledge rules (100% real dynamic data)."""
+    @router.get("/api/stats")
+    async def get_dashboard_stats(project: Optional[str] = None):
+        """API returning summary statistics, project breakdowns, and recent requests directly from SQLite."""
+        cache_key = project or "ALL"
+        now = time.time()
+        cached = _stats_cache.get(cache_key)
+        if cached and (now - cached[0] < 2.5):
+            return cached[1]
+
+        data = await asyncio.to_thread(_compute_dashboard_stats, project)
+        _stats_cache[cache_key] = (now, data)
+        return data
+
+    def _compute_memory_stats():
         if not stats_repo:
             return {
                 "total_fingerprints": 0,
@@ -377,6 +412,20 @@ def create_router(
             "rendered_markdown": rendered,
         }
 
+    @router.get("/api/memory/stats")
+    async def get_memory_stats():
+        """API returning memory repository metrics and learned knowledge rules (100% real dynamic data)."""
+        now = time.time()
+        cached = _memory_stats_cache.get("data")
+        cached_ts = _memory_stats_cache.get("timestamp", 0.0)
+        if cached is not None and (now - cached_ts < 30.0):
+            return cached
+
+        data = await asyncio.to_thread(_compute_memory_stats)
+        _memory_stats_cache["timestamp"] = now
+        _memory_stats_cache["data"] = data
+        return data
+
     @router.get("/api/db/raw")
     async def get_raw_database_records():
         """API returning direct SQLite database records for verification."""
@@ -400,33 +449,65 @@ def create_router(
         """Return knowledge graph summary stats: total entities, relations, types."""
         if not graph_store:
             return {"total_entities": 0, "total_relationships": 0, "entity_types": {}, "top_entities": []}
-        return graph_store.get_stats()
+        now = time.time()
+        cached = _graph_stats_cache.get("data")
+        cached_ts = _graph_stats_cache.get("timestamp", 0.0)
+        if cached is not None and (now - cached_ts < 3.0):
+            return cached
+
+        data = await asyncio.to_thread(graph_store.get_stats)
+        _graph_stats_cache["timestamp"] = now
+        _graph_stats_cache["data"] = data
+        return data
 
     @router.get("/api/graph/entities")
     async def get_graph_entities(type: Optional[str] = None, limit: int = 100):
         """List entities in the personal knowledge graph."""
         if not graph_store:
             return {"entities": []}
-        entities = graph_store.list_entities(entity_type=type, limit=limit)
-        return {"entities": [e.to_dict() for e in entities]}
+        cache_key = f"{type}:{limit}"
+        now = time.time()
+        cached = _graph_entities_cache.get(cache_key)
+        if cached and (now - cached[0] < 3.0):
+            return cached[1]
+
+        def _fetch_entities():
+            ents = graph_store.list_entities(entity_type=type, limit=limit)
+            return {"entities": [e.to_dict() for e in ents]}
+
+        data = await asyncio.to_thread(_fetch_entities)
+        _graph_entities_cache[cache_key] = (now, data)
+        return data
 
     @router.get("/api/graph/full")
     async def get_full_graph_api():
         """Return all entities and relationships for network graph visualization."""
         if not graph_store:
             return {"entities": [], "relationships": []}
-        subgraph = graph_store.get_full_graph(limit=500)
-        return {
-            "entities": [e.to_dict() for e in subgraph.entities],
-            "relationships": [r.to_dict() for r in subgraph.relationships],
-        }
+        now = time.time()
+        cached = _graph_full_cache.get("data")
+        cached_ts = _graph_full_cache.get("timestamp", 0.0)
+        if cached is not None and (now - cached_ts < 3.0):
+            return cached
+
+        def _fetch_full():
+            subgraph = graph_store.get_full_graph(limit=500)
+            return {
+                "entities": [e.to_dict() for e in subgraph.entities],
+                "relationships": [r.to_dict() for r in subgraph.relationships],
+            }
+
+        data = await asyncio.to_thread(_fetch_full)
+        _graph_full_cache["timestamp"] = now
+        _graph_full_cache["data"] = data
+        return data
 
     @router.get("/api/graph/query")
     async def query_subgraph_api(q: str, hops: int = 2):
         """Run BFS multi-hop subgraph query for a given entity or keyword."""
         if not graph_store or not q.strip():
             return {"entities": [], "relationships": [], "context_markdown": ""}
-        subgraph = graph_store.query_subgraph([q.strip()], max_hops=min(3, max(1, hops)))
+        subgraph = await asyncio.to_thread(graph_store.query_subgraph, [q.strip()], min(3, max(1, hops)))
         return {
             "entities": [e.to_dict() for e in subgraph.entities],
             "relationships": [r.to_dict() for r in subgraph.relationships],
@@ -448,6 +529,7 @@ def create_router(
             description=body.get("description", ""),
             properties=body.get("properties", {}),
         ))
+        _invalidate_graph_cache()
         return {"status": "success", "entity": entity.to_dict()}
 
     @router.post("/api/graph/relationship")
@@ -473,6 +555,7 @@ def create_router(
             relation_type=rel_type,
             weight=float(body.get("weight", 1.0)),
         ))
+        _invalidate_graph_cache()
         return {"status": "success", "relationship": rel.to_dict()}
 
     @router.delete("/api/graph/entity/{entity_id}")
@@ -481,6 +564,7 @@ def create_router(
         if not graph_store:
             return JSONResponse(status_code=503, content={"error": "Graph store disabled"})
         deleted = graph_store.delete_entity(entity_id)
+        _invalidate_graph_cache()
         return {"status": "success" if deleted else "not_found", "deleted": deleted}
 
     @router.post("/api/graph/entity/{entity_id}/supersede")
@@ -506,6 +590,7 @@ def create_router(
                 new_description=body.get("new_description"),
                 new_metadata=body.get("new_metadata"),
             )
+            _invalidate_graph_cache()
             return {"status": "superseded", "new_entity": new_entity.to_dict()}
         except ValueError as exc:
             return JSONResponse(status_code=409, content={"error": str(exc)})
@@ -693,46 +778,51 @@ def create_router(
     @router.post("/api/learn/run")
     async def run_learn_api():
         """API to trigger offline failure incident mining and generate rule block (100% real dynamic data)."""
-        raw_events = []
-        try:
-            if stats_repo and stats_repo.db and stats_repo.db.db_path.exists():
-                raw_events.extend(LogScanner.scan_ctxguard_db(stats_repo.db.db_path, limit=1000))
-        except Exception:
-            pass
-
-        try:
-            claude_events = LogScanner.scan_claude_logs()
-            if claude_events:
-                raw_events.extend(claude_events)
-        except Exception:
-            pass
-
-        detector = LoopDetector(threshold=config.learn.detect_loop_threshold)
-        pivot_analyzer = PivotAnalyzer()
-        extractor = CausalityExtractor()
-
-        pivots = pivot_analyzer.analyze_events(raw_events)
-        incidents = detector.detect_loops_from_events(raw_events)
-        rules = extractor.extract_rules(incidents=incidents, pivots=pivots)
-
-        marker = "CTXGUARD_AUTO_RULES"
-        rendered = RuleRenderer.render_markdown_block(rules, marker=marker)
-
-        # Atomically sync to target files defined in config
-        target_files = config.learn.target_files or []
-        for tf in target_files:
+        def _execute_learn():
+            raw_events = []
             try:
-                AtomicRuleWriter.write_rules_to_file(tf.path, rendered, marker=tf.marker or marker)
+                if stats_repo and stats_repo.db and stats_repo.db.db_path.exists():
+                    raw_events.extend(LogScanner.scan_ctxguard_db(stats_repo.db.db_path, limit=1000))
             except Exception:
                 pass
 
-        return {
-            "status": "ok",
-            "discovered_pivots": len(pivots),
-            "detected_loops": len(incidents),
-            "rules_count": len(rules),
-            "rendered_rules": rendered,
-        }
+            try:
+                claude_events = LogScanner.scan_claude_logs()
+                if claude_events:
+                    raw_events.extend(claude_events)
+            except Exception:
+                pass
+
+            detector = LoopDetector(threshold=config.learn.detect_loop_threshold)
+            pivot_analyzer = PivotAnalyzer()
+            extractor = CausalityExtractor()
+
+            pivots = pivot_analyzer.analyze_events(raw_events)
+            incidents = detector.detect_loops_from_events(raw_events)
+            rules = extractor.extract_rules(incidents=incidents, pivots=pivots)
+
+            marker = "CTXGUARD_AUTO_RULES"
+            rendered = RuleRenderer.render_markdown_block(rules, marker=marker)
+
+            # Atomically sync to target files defined in config
+            target_files = config.learn.target_files or []
+            for tf in target_files:
+                try:
+                    AtomicRuleWriter.write_rules_to_file(tf.path, rendered, marker=tf.marker or marker)
+                except Exception:
+                    pass
+
+            return {
+                "status": "ok",
+                "discovered_pivots": len(pivots),
+                "detected_loops": len(incidents),
+                "rules_count": len(rules),
+                "rendered_rules": rendered,
+            }
+
+        res = await asyncio.to_thread(_execute_learn)
+        _invalidate_memory_cache()
+        return res
 
     # --------------------------------------------------------------------------
     # Health & Models Endpoints
@@ -777,6 +867,8 @@ def create_router(
         norm_req = openai_adapter.parse_request(raw_body, session_id=raw_session_id)
         session_id, project_name, prompt_preview = extract_session_and_project(request, norm_req)
         norm_req.session_id = session_id
+        norm_req.metadata["workspace_key"] = project_name
+        norm_req.metadata["project_name"] = project_name
 
         # Resolve provider and idle time for cache safety & cold recompact
         model_lower = norm_req.model.lower()
@@ -928,6 +1020,18 @@ def create_router(
             stream_gen = upstream.forward_stream(
                 "v1/chat/completions", upstream_payload, headers, provider_name, **fwd_kwargs
             )
+            if streaming_vtool_handler:
+                stream_gen = streaming_vtool_handler.wrap_stream(
+                    stream_gen=stream_gen,
+                    upstream_payload=upstream_payload,
+                    headers=headers,
+                    provider_name=provider_name,
+                    upstream_client=upstream,
+                    protocol="openai",
+                    path="v1/chat/completions",
+                    session_id=session_id,
+                    fwd_kwargs=fwd_kwargs,
+                )
             duration_ms = (time.perf_counter() - start_time) * 1000
             if req_ctx.original_tokens > req_ctx.optimized_tokens:
                 record_savings_event(
@@ -972,6 +1076,34 @@ def create_router(
                 "v1/chat/completions", upstream_payload, headers, provider_name, **fwd_kwargs
             )
             duration_ms = (time.perf_counter() - start_time) * 1000
+
+            # Virtual Tool Interception (Headroom Phase 5/6: 100% Zero-Crash CCR Loop)
+            if resp.status_code == 200 and vtool_handler:
+                try:
+                    resp_json = orjson.loads(resp.content)
+                    if vtool_handler.has_virtual_tool_calls(resp_json, protocol="openai"):
+                        final_bytes, extra_rounds, final_status = await vtool_handler.handle_non_streaming(
+                            initial_response_bytes=resp.content,
+                            upstream_payload=upstream_payload,
+                            headers=headers,
+                            provider_name=provider_name,
+                            upstream_client=upstream,
+                            protocol="openai",
+                            path="v1/chat/completions",
+                            session_id=session_id,
+                            fwd_kwargs=fwd_kwargs,
+                        )
+                        if extra_rounds > 0:
+                            duration_ms = (time.perf_counter() - start_time) * 1000
+                            req_ctx.applied_compressors.append("virtual_tool_recursive_expand")
+                            resp = httpx.Response(
+                                status_code=final_status,
+                                content=final_bytes,
+                                headers=resp.headers,
+                            )
+                except Exception as v_err:
+                    logger.warning(f"[VirtualToolHandler] OpenAI response interception failed: {v_err}")
+
             if req_ctx.original_tokens > req_ctx.optimized_tokens:
                 record_savings_event(
                     tokens_before=req_ctx.original_tokens,
@@ -1183,6 +1315,8 @@ def create_router(
         )
         session_id, project_name, prompt_preview = extract_session_and_project(request, norm_req)
         norm_req.session_id = session_id
+        norm_req.metadata["workspace_key"] = project_name
+        norm_req.metadata["project_name"] = project_name
         provider_name = request.headers.get("x-ctxguard-provider")
         if not provider_name:
             provider_name = "codex" if "codex" in config.upstream.providers else config.upstream.default_provider
@@ -1361,6 +1495,8 @@ def create_router(
         norm_req = anthropic_adapter.parse_request(raw_body, session_id=raw_session_id)
         session_id, project_name, prompt_preview = extract_session_and_project(request, norm_req)
         norm_req.session_id = session_id
+        norm_req.metadata["workspace_key"] = project_name
+        norm_req.metadata["project_name"] = project_name
 
         # Resolve provider and idle time for cache safety & cold recompact
         provider_name = request.headers.get("x-ctxguard-provider", "anthropic")
@@ -1480,6 +1616,18 @@ def create_router(
             stream_gen = upstream.forward_stream(
                 "v1/messages", upstream_payload, headers, provider_name, **fwd_kwargs
             )
+            if streaming_vtool_handler:
+                stream_gen = streaming_vtool_handler.wrap_stream(
+                    stream_gen=stream_gen,
+                    upstream_payload=upstream_payload,
+                    headers=headers,
+                    provider_name=provider_name,
+                    upstream_client=upstream,
+                    protocol="anthropic",
+                    path="v1/messages",
+                    session_id=session_id,
+                    fwd_kwargs=fwd_kwargs,
+                )
             duration_ms = (time.perf_counter() - start_time) * 1000
             if req_ctx.original_tokens > req_ctx.optimized_tokens:
                 record_savings_event(
@@ -1524,6 +1672,34 @@ def create_router(
                 "v1/messages", upstream_payload, headers, provider_name, **fwd_kwargs
             )
             duration_ms = (time.perf_counter() - start_time) * 1000
+
+            # Virtual Tool Interception (Headroom Phase 5/6: 100% Zero-Crash CCR Loop)
+            if resp.status_code == 200 and vtool_handler:
+                try:
+                    resp_json = orjson.loads(resp.content)
+                    if vtool_handler.has_virtual_tool_calls(resp_json, protocol="anthropic"):
+                        final_bytes, extra_rounds, final_status = await vtool_handler.handle_non_streaming(
+                            initial_response_bytes=resp.content,
+                            upstream_payload=upstream_payload,
+                            headers=headers,
+                            provider_name=provider_name,
+                            upstream_client=upstream,
+                            protocol="anthropic",
+                            path="v1/messages",
+                            session_id=session_id,
+                            fwd_kwargs=fwd_kwargs,
+                        )
+                        if extra_rounds > 0:
+                            duration_ms = (time.perf_counter() - start_time) * 1000
+                            req_ctx.applied_compressors.append("virtual_tool_recursive_expand")
+                            resp = httpx.Response(
+                                status_code=final_status,
+                                content=final_bytes,
+                                headers=resp.headers,
+                            )
+                except Exception as v_err:
+                    logger.warning(f"[VirtualToolHandler] Anthropic response interception failed: {v_err}")
+
             if req_ctx.original_tokens > req_ctx.optimized_tokens:
                 record_savings_event(
                     tokens_before=req_ctx.original_tokens,

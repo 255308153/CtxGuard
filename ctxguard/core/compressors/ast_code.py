@@ -19,7 +19,8 @@ class PythonASTSkeletonizer:
         code_str: str,
         short_sha: str,
         preserve_docstrings: bool = True,
-        min_body_lines: int = 4
+        min_body_lines: int = 4,
+        tool_injection_enabled: bool = True,
     ) -> Optional[str]:
         """Parse and skeletonize Python code. Returns None if code cannot be parsed as valid Python."""
         try:
@@ -83,7 +84,10 @@ class PythonASTSkeletonizer:
             start_idx = start_line - 1
             end_idx = end_line  # slice is exclusive at end
             indent_str = " " * indent
-            placeholder = f"{indent_str}...  # [CtxGuard: Implementation folded ({count} lines). Use ctx_expand('{short_sha}') if details needed]"
+            if tool_injection_enabled:
+                placeholder = f"{indent_str}...  # [CtxGuard: Implementation folded ({count} lines). Use ctx_expand('{short_sha}') if details needed]"
+            else:
+                placeholder = f"{indent_str}...  # [CtxGuard: Implementation folded ({count} lines)]"
             new_lines[start_idx:end_idx] = [placeholder]
 
         skeleton_code = "\n".join(new_lines)
@@ -187,7 +191,8 @@ class TreeSitterSkeletonizer:
         code_str: str,
         lang_name: str,
         short_sha: str,
-        min_body_lines: int = 4
+        min_body_lines: int = 4,
+        tool_injection_enabled: bool = True,
     ) -> Optional[str]:
         parser_info = cls.get_parser_and_lang(lang_name)
         if not parser_info:
@@ -235,9 +240,15 @@ class TreeSitterSkeletonizer:
         for start_b, end_b, line_count, indent_col in folds:
             indent_str = " " * indent_col
             if canonical_lang == "python":
-                rep_text = f":\n{indent_str}    ...  # [CtxGuard: Implementation folded ({line_count} lines). Use ctx_expand('{short_sha}') if details needed]"
+                if tool_injection_enabled:
+                    rep_text = f":\n{indent_str}    ...  # [CtxGuard: Implementation folded ({line_count} lines). Use ctx_expand('{short_sha}') if details needed]"
+                else:
+                    rep_text = f":\n{indent_str}    ...  # [CtxGuard: Implementation folded ({line_count} lines)]"
             else:
-                rep_text = f" {{\n{indent_str}    {comment_prefix} [CtxGuard: Implementation folded ({line_count} lines). Use ctx_expand('{short_sha}') if details needed]\n{indent_str}}}"
+                if tool_injection_enabled:
+                    rep_text = f" {{\n{indent_str}    {comment_prefix} [CtxGuard: Implementation folded ({line_count} lines). Use ctx_expand('{short_sha}') if details needed]\n{indent_str}}}"
+                else:
+                    rep_text = f" {{\n{indent_str}    {comment_prefix} [CtxGuard: Implementation folded ({line_count} lines)]\n{indent_str}}}"
             mut_bytes[start_b:end_b] = rep_text.encode("utf-8")
 
         return mut_bytes.decode("utf-8", errors="replace")
@@ -256,7 +267,8 @@ class GenericBraceSkeletonizer:
         cls,
         code_str: str,
         short_sha: str,
-        min_body_lines: int = 5
+        min_body_lines: int = 5,
+        tool_injection_enabled: bool = True,
     ) -> Optional[str]:
         lines = code_str.splitlines()
         if len(lines) < min_body_lines:
@@ -287,7 +299,10 @@ class GenericBraceSkeletonizer:
 
                 if brace_depth == 0 and body_lines_count >= min_body_lines:
                     new_lines.append(header)
-                    new_lines.append(f"{indent_str}    // [CtxGuard: Implementation folded ({body_lines_count} lines). Use ctx_expand('{short_sha}') if details needed]")
+                    if tool_injection_enabled:
+                        new_lines.append(f"{indent_str}    // [CtxGuard: Implementation folded ({body_lines_count} lines). Use ctx_expand('{short_sha}') if details needed]")
+                    else:
+                        new_lines.append(f"{indent_str}    // [CtxGuard: Implementation folded ({body_lines_count} lines)]")
                     new_lines.append(f"{indent_str}}}")
                     i = curr_i
                     modified = True
@@ -312,10 +327,12 @@ class ASTCodeCompressor(BaseCompressor):
     def __init__(
         self,
         config: ASTCodeCompressorConfig,
-        fingerprint_repo: Optional[FingerprintRepository] = None
+        fingerprint_repo: Optional[FingerprintRepository] = None,
+        tool_injection_enabled: bool = True,
     ):
         self.config = config
         self.fingerprint_repo = fingerprint_repo
+        self.tool_injection_enabled = tool_injection_enabled
         self.session_fingerprints: Dict[str, Dict[str, str]] = {}
 
     @property
@@ -361,7 +378,8 @@ class ASTCodeCompressor(BaseCompressor):
                 skeleton = TreeSitterSkeletonizer.skeletonize(
                     code_body,
                     lang_name=lang,
-                    short_sha=short_sha
+                    short_sha=short_sha,
+                    tool_injection_enabled=self.tool_injection_enabled,
                 )
 
                 # Priority 2: Native Python AST fallback for python
@@ -369,14 +387,16 @@ class ASTCodeCompressor(BaseCompressor):
                     skeleton = PythonASTSkeletonizer.skeletonize(
                         code_body,
                         short_sha=short_sha,
-                        preserve_docstrings=self.config.preserve_docstrings
+                        preserve_docstrings=self.config.preserve_docstrings,
+                        tool_injection_enabled=self.tool_injection_enabled,
                     )
 
                 # Priority 3: Heuristic Generic Brace Fallback
                 if not skeleton and lang in self.config.supported_languages:
                     skeleton = GenericBraceSkeletonizer.skeletonize(
                         code_body,
-                        short_sha=short_sha
+                        short_sha=short_sha,
+                        tool_injection_enabled=self.tool_injection_enabled,
                     )
 
                 if skeleton and len(skeleton) < len(code_body):
@@ -397,15 +417,25 @@ class ASTCodeCompressor(BaseCompressor):
                 self.fingerprint_repo.save_fingerprint(sha, session_id, text)
                 self.fingerprint_repo.save_fingerprint(short_sha, session_id, text)
 
-            skeleton = TreeSitterSkeletonizer.skeletonize(text, lang_name="python", short_sha=short_sha)
+            skeleton = TreeSitterSkeletonizer.skeletonize(
+                text,
+                lang_name="python",
+                short_sha=short_sha,
+                tool_injection_enabled=self.tool_injection_enabled,
+            )
             if not skeleton:
                 skeleton = PythonASTSkeletonizer.skeletonize(
                     text,
                     short_sha=short_sha,
-                    preserve_docstrings=self.config.preserve_docstrings
+                    preserve_docstrings=self.config.preserve_docstrings,
+                    tool_injection_enabled=self.tool_injection_enabled,
                 )
             if not skeleton:
-                skeleton = GenericBraceSkeletonizer.skeletonize(text, short_sha=short_sha)
+                skeleton = GenericBraceSkeletonizer.skeletonize(
+                    text,
+                    short_sha=short_sha,
+                    tool_injection_enabled=self.tool_injection_enabled,
+                )
 
             if skeleton and len(skeleton) < len(text):
                 return skeleton

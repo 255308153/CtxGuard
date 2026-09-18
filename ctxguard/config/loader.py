@@ -27,6 +27,7 @@ from ctxguard.config.schema import (
     TargetFileConfig,
     SemanticCacheConfig,
     PiggybackExtractionConfig,
+    ProactiveExpansionConfig,
 )
 from ctxguard.config.validator import validate_config
 
@@ -239,6 +240,17 @@ class ConfigLoader:
         if pb_data:
             config.piggyback_extraction = PiggybackExtractionConfig(
                 enabled=bool(pb_data.get("enabled", config.piggyback_extraction.enabled)),
+            )
+
+        # Proactive context expansion
+        pe_data = data.get("proactive_expansion", {})
+        if pe_data:
+            config.proactive_expansion = ProactiveExpansionConfig(
+                enabled=bool(pe_data.get("enabled", config.proactive_expansion.enabled)),
+                relevance_threshold=float(pe_data.get("relevance_threshold", config.proactive_expansion.relevance_threshold)),
+                max_expansions=int(pe_data.get("max_expansions", config.proactive_expansion.max_expansions)),
+                max_content_chars=int(pe_data.get("max_content_chars", config.proactive_expansion.max_content_chars)),
+                blocked_keywords=pe_data.get("blocked_keywords", config.proactive_expansion.blocked_keywords),
             )
 
         return config

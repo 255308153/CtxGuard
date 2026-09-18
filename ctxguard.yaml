@@ -128,3 +128,13 @@ learn:
       marker: "CTXGUARD_AUTO_RULES"
     - path: ".windsurfrules"
       marker: "CTXGUARD_AUTO_RULES"
+
+proactive_expansion:
+  enabled: true
+  relevance_threshold: 0.35
+  max_expansions: 2
+  max_content_chars: 1200
+  max_context_age_seconds: 300.0  # 5-minute TTL to evict stale command outputs
+  max_contexts: 100               # LRU capacity limit
+  skip_in_cache_mode: false       # Set true to protect KV cache stability when session has frozen prefix
+

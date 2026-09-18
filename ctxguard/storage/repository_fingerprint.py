@@ -14,13 +14,22 @@ class FingerprintRepository:
         self.max_records = max_records
         # High-speed in-memory LRU cache to eliminate SSD read/write overhead
         self._memory_cache: OrderedDict[str, str] = OrderedDict()
+        self._memory_sessions: OrderedDict[str, str] = OrderedDict()
         self._write_counter = 0
 
     def _clean_hash(self, hash_id: str) -> str:
         """Strip sha256_ prefix and whitespace."""
         return hash_id.replace("sha256_", "").strip()
 
-    def save_fingerprint(self, hash_id: str, session_id: str, content: str, max_records: int = 10000, tool_name: Optional[str] = None) -> None:
+    def save_fingerprint(
+        self,
+        hash_id: str,
+        session_id: str,
+        content: str,
+        max_records: int = 10000,
+        tool_name: Optional[str] = None,
+        workspace_key: str = "",
+    ) -> None:
         """Save a content fingerprint into in-memory LRU and persist to SQLite with batch eviction."""
         clean_id = self._clean_hash(hash_id)
 
@@ -29,8 +38,11 @@ class FingerprintRepository:
         self.max_records = effective_limit
         self._memory_cache[clean_id] = content
         self._memory_cache.move_to_end(clean_id)
+        self._memory_sessions[clean_id] = session_id
+        self._memory_sessions.move_to_end(clean_id)
         while len(self._memory_cache) > effective_limit:
             self._memory_cache.popitem(last=False)
+            self._memory_sessions.popitem(last=False)
 
         # 2. Notify context_tracker if present
         if self.context_tracker is not None:
@@ -40,6 +52,7 @@ class FingerprintRepository:
                     session_id=session_id,
                     sample_content=content,
                     tool_name=tool_name,
+                    workspace_key=workspace_key,
                 )
             except Exception:
                 pass
@@ -76,70 +89,119 @@ class FingerprintRepository:
                 )
             conn.commit()
 
-    def get_content(self, hash_id: str) -> Optional[str]:
-        """Retrieve original content by full or prefix hash ID with memory-first lookup."""
+    def get_content(self, hash_id: str, session_id: Optional[str] = None) -> Optional[str]:
+        """Retrieve original content by full or prefix hash ID with memory-first lookup.
+
+        If session_id is provided, lookups will be strictly verified against that session.
+        """
         clean_hash = self._clean_hash(hash_id)
 
         # 1. Check in-memory LRU cache first (0 disk I/O, instant hit)
         if clean_hash in self._memory_cache:
-            self._memory_cache.move_to_end(clean_hash)
-            if self.max_records < 100:
-                try:
-                    with self.db.get_connection() as conn:
-                        conn.execute(
-                            "UPDATE fingerprints SET last_accessed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), hit_count = hit_count + 1 WHERE hash_id = ?",
-                            (clean_hash,),
-                        )
-                        conn.commit()
-                except Exception:
-                    pass
-            return self._memory_cache[clean_hash]
+            if session_id is None or self._memory_sessions.get(clean_hash) == session_id:
+                self._memory_cache.move_to_end(clean_hash)
+                if clean_hash in self._memory_sessions:
+                    self._memory_sessions.move_to_end(clean_hash)
+                if self.max_records < 100:
+                    try:
+                        with self.db.get_connection() as conn:
+                            conn.execute(
+                                "UPDATE fingerprints SET last_accessed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), hit_count = hit_count + 1 WHERE hash_id = ?",
+                                (clean_hash,),
+                            )
+                            conn.commit()
+                    except Exception:
+                        pass
+                return self._memory_cache[clean_hash]
 
         # In-memory prefix lookup for short hashes
         if len(clean_hash) < 64:
             for k, v in self._memory_cache.items():
                 if k.startswith(clean_hash):
-                    self._memory_cache.move_to_end(k)
-                    if self.max_records < 100:
-                        try:
-                            with self.db.get_connection() as conn:
-                                conn.execute(
-                                    "UPDATE fingerprints SET last_accessed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), hit_count = hit_count + 1 WHERE hash_id = ?",
-                                    (k,),
-                                )
-                                conn.commit()
-                        except Exception:
-                            pass
-                    return v
+                    if session_id is None or self._memory_sessions.get(k) == session_id:
+                        self._memory_cache.move_to_end(k)
+                        if k in self._memory_sessions:
+                            self._memory_sessions.move_to_end(k)
+                        if self.max_records < 100:
+                            try:
+                                with self.db.get_connection() as conn:
+                                    conn.execute(
+                                        "UPDATE fingerprints SET last_accessed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), hit_count = hit_count + 1 WHERE hash_id = ?",
+                                        (k,),
+                                    )
+                                    conn.commit()
+                            except Exception:
+                                pass
+                        return v
 
         # 2. Fallback to SQLite query and populate in-memory LRU
         with self.db.get_connection() as conn:
             # Exact match
-            cursor = conn.execute(
-                "SELECT content, hash_id FROM fingerprints WHERE hash_id = ? LIMIT 1",
-                (clean_hash,),
-            )
+            if session_id is not None:
+                cursor = conn.execute(
+                    "SELECT content, hash_id, session_id FROM fingerprints WHERE hash_id = ? AND session_id = ? LIMIT 1",
+                    (clean_hash, session_id),
+                )
+            else:
+                cursor = conn.execute(
+                    "SELECT content, hash_id, session_id FROM fingerprints WHERE hash_id = ? LIMIT 1",
+                    (clean_hash,),
+                )
             row = cursor.fetchone()
             if row:
                 content = row["content"]
                 matched_id = row["hash_id"]
+                row_session = row["session_id"]
                 self._memory_cache[matched_id] = content
+                self._memory_sessions[matched_id] = row_session
                 if len(self._memory_cache) > self.max_records:
                     self._memory_cache.popitem(last=False)
+                    self._memory_sessions.popitem(last=False)
                 return content
 
             # Prefix match for short fingerprints
-            cursor = conn.execute(
-                "SELECT content, hash_id FROM fingerprints WHERE hash_id LIKE ? LIMIT 1",
-                (f"{clean_hash}%",),
-            )
+            if session_id is not None:
+                cursor = conn.execute(
+                    "SELECT content, hash_id, session_id FROM fingerprints WHERE hash_id LIKE ? AND session_id = ? LIMIT 1",
+                    (f"{clean_hash}%", session_id),
+                )
+            else:
+                cursor = conn.execute(
+                    "SELECT content, hash_id, session_id FROM fingerprints WHERE hash_id LIKE ? LIMIT 1",
+                    (f"{clean_hash}%",),
+                )
             row = cursor.fetchone()
             if row:
                 content = row["content"]
                 matched_id = row["hash_id"]
+                row_session = row["session_id"]
                 self._memory_cache[matched_id] = content
+                self._memory_sessions[matched_id] = row_session
                 if len(self._memory_cache) > self.max_records:
                     self._memory_cache.popitem(last=False)
+                    self._memory_sessions.popitem(last=False)
                 return content
 
         return None
+
+    def has_fingerprint(self, hash_id: str, session_id: Optional[str] = None) -> bool:
+        """Check if a fingerprint exists, optionally scoped to session_id."""
+        clean_hash = self._clean_hash(hash_id)
+        if session_id is None:
+            if clean_hash in self._memory_cache:
+                return True
+            with self.db.get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT 1 FROM fingerprints WHERE hash_id = ? OR hash_id LIKE ? LIMIT 1",
+                    (clean_hash, f"{clean_hash}%"),
+                )
+                return cursor.fetchone() is not None
+        else:
+            if clean_hash in self._memory_cache and self._memory_sessions.get(clean_hash) == session_id:
+                return True
+            with self.db.get_connection() as conn:
+                cursor = conn.execute(
+                    "SELECT 1 FROM fingerprints WHERE (hash_id = ? OR hash_id LIKE ?) AND session_id = ? LIMIT 1",
+                    (clean_hash, f"{clean_hash}%", session_id),
+                )
+                return cursor.fetchone() is not None

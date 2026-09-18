@@ -20,10 +20,12 @@ class LogTruncator(BaseCompressor):
     def __init__(
         self,
         config: LogCleanerConfig,
-        fingerprint_repo: Optional[FingerprintRepository] = None
+        fingerprint_repo: Optional[FingerprintRepository] = None,
+        tool_injection_enabled: bool = True,
     ):
         self.config = config
         self.fingerprint_repo = fingerprint_repo
+        self.tool_injection_enabled = tool_injection_enabled
         self.session_fingerprints: Dict[str, Dict[str, str]] = {}
 
     @property
@@ -62,7 +64,10 @@ class LogTruncator(BaseCompressor):
         tail_part = lines[-tail:] if tail > 0 else []
         omitted = total_lines - head - tail
 
-        folded_msg = f"[... CtxGuard: {omitted} lines omitted (head {head} / tail {tail}). Use ctx_expand('{short_sha}') for full output ...]"
+        if self.tool_injection_enabled:
+            folded_msg = f"[... CtxGuard: {omitted} lines omitted (head {head} / tail {tail}). Use ctx_expand('{short_sha}') for full output ...]"
+        else:
+            folded_msg = f"[... CtxGuard: {omitted} lines omitted (head {head} / tail {tail}) ...]"
         result_lines = head_part + [folded_msg] + tail_part
         return "\n".join(result_lines)
 

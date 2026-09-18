@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from typing import List, Optional
-from ctxguard.learn.loop_detector import LoopIncident
+from ctxguard.learn.loop_detector import LoopDetector, LoopIncident
 from ctxguard.learn.pivot_analyzer import PivotIncident
 
 
@@ -63,6 +63,8 @@ class CausalityExtractor:
             for inc in incidents:
                 if inc.pattern_type == "re_fetch_loop":
                     sig = inc.target_identifier
+                    if LoopDetector.is_whitelisted_command(sig):
+                        continue
                     rules.append(ExtractedRule(
                         category="Search Scope",
                         trigger=f"Running incremental queries for `{sig}`",

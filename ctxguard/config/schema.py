@@ -225,6 +225,21 @@ class OutputShapingConfig:
 
 
 @dataclass
+class ProactiveExpansionConfig:
+    enabled: bool = True
+    relevance_threshold: float = 0.35
+    max_expansions: int = 2
+    max_content_chars: int = 1200
+    max_context_age_seconds: float = 300.0  # Strict 5-minute TTL to prevent stale CLI dumps
+    max_contexts: int = 100                 # LRU eviction capacity
+    skip_in_cache_mode: bool = False        # Prioritize upstream KV Cache stability over proactive backfill
+    blocked_keywords: List[str] = field(default_factory=lambda: [
+        "pytest", "git status", "git diff", "incremental paging queries",
+        "CTXGUARD_AUTO_RULES", "Do not repeatedly execute", "Headroom Learned Patterns"
+    ])
+
+
+@dataclass
 class AppConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     upstream: UpstreamConfig = field(default_factory=UpstreamConfig)
@@ -237,3 +252,5 @@ class AppConfig:
     semantic_cache: SemanticCacheConfig = field(default_factory=SemanticCacheConfig)
     piggyback_extraction: PiggybackExtractionConfig = field(default_factory=PiggybackExtractionConfig)
     output_shaper: OutputShapingConfig = field(default_factory=OutputShapingConfig)
+    proactive_expansion: ProactiveExpansionConfig = field(default_factory=ProactiveExpansionConfig)
+

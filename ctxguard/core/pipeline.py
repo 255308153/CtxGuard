@@ -2,7 +2,7 @@ import asyncio
 import copy
 from typing import Any, Callable, Dict, List, Optional
 from ctxguard.config.schema import AppConfig
-from ctxguard.core.context import NormalizedRequest, RequestContext
+from ctxguard.core.context import Message, NormalizedRequest, RequestContext
 from ctxguard.core.compressors.base import BaseCompressor
 from ctxguard.storage.repository_fingerprint import FingerprintRepository
 from ctxguard.utils.token_counter import estimate_tokens_from_payload, estimate_tokens_from_text
@@ -42,7 +42,15 @@ class CompressionPipeline:
         self.config = config
         self.fingerprint_repo = fingerprint_repo
         self.db_manager = db_manager
-        self.context_tracker = ContextTracker()
+        pe_cfg = getattr(config, "proactive_expansion", None)
+        self.proactive_expansion_enabled = getattr(pe_cfg, "enabled", True) if pe_cfg else True
+        self.context_tracker = ContextTracker(
+            relevance_threshold=getattr(pe_cfg, "relevance_threshold", 0.45) if pe_cfg else 0.45,
+            max_content_chars=getattr(pe_cfg, "max_content_chars", 1200) if pe_cfg else 1200,
+            max_context_age_seconds=getattr(pe_cfg, "max_context_age_seconds", 300.0) if pe_cfg else 300.0,
+            max_contexts=getattr(pe_cfg, "max_contexts", 100) if pe_cfg else 100,
+            blocked_keywords=getattr(pe_cfg, "blocked_keywords", None) if pe_cfg else None,
+        )
         if self.fingerprint_repo is not None and getattr(self.fingerprint_repo, "context_tracker", None) is None:
             self.fingerprint_repo.context_tracker = self.context_tracker
         self.cache_guard = CacheGuard(config.cache_guard, db_manager=db_manager)
@@ -54,23 +62,28 @@ class CompressionPipeline:
         self.tools_normalizer = ToolsNormalizer()
         self.adaptive_scheduler = AdaptiveScheduler(config.adaptive_pipeline)
         self.virtual_tool_injector = VirtualToolInjector(config.dedup.tool_injection)
+        tool_injection_enabled = getattr(getattr(config.dedup, "tool_injection", None), "enabled", True)
         self.secret_redactor = SecretRedactor(config.structural_compression.secret_redactor)
         self.tool_delta_compressor = ToolDeltaCompressor(
             config.structural_compression.tool_delta,
-            fingerprint_repo=fingerprint_repo
+            fingerprint_repo=fingerprint_repo,
+            tool_injection_enabled=tool_injection_enabled,
         )
         self.log_truncator = LogTruncator(
             config.structural_compression.log_cleaner,
-            fingerprint_repo=fingerprint_repo
+            fingerprint_repo=fingerprint_repo,
+            tool_injection_enabled=tool_injection_enabled,
         )
         self.git_diff_compressor = GitDiffCompressor(
             config.structural_compression.git_diff,
-            fingerprint_repo=fingerprint_repo
+            fingerprint_repo=fingerprint_repo,
+            tool_injection_enabled=tool_injection_enabled,
         )
         self.dedup_compressor = DedupCompressor(config.dedup, fingerprint_repo=fingerprint_repo)
         self.ast_compressor = ASTCodeCompressor(
             config.structural_compression.ast_compressor,
-            fingerprint_repo=fingerprint_repo
+            fingerprint_repo=fingerprint_repo,
+            tool_injection_enabled=tool_injection_enabled,
         )
         self.semantic_pruner = SemanticPruner(
             protected_keywords=config.adaptive_pipeline.protected_keywords,
@@ -113,19 +126,58 @@ class CompressionPipeline:
             return fn
         return decorator
 
-    def apply_proactive_expansion(self, request: NormalizedRequest) -> None:
-        """Analyze query relevance against compressed contexts and proactively expand full content."""
-        if not self.context_tracker or not self.fingerprint_repo or not request.messages:
+    def apply_proactive_expansion(
+        self,
+        request: NormalizedRequest,
+        target_messages: Optional[List[Message]] = None,
+    ) -> None:
+        """Analyze query relevance against compressed contexts and proactively expand full content.
+
+        CRITICAL PROMPT CACHE INVARIANT:
+        Never modify any historical messages that belong to `frozen_prefix`!
+        If `target_messages` (compressible_suffix) is provided, expansion MUST ONLY be injected
+        into the live zone (e.g. the latest user message or the last active tool/turn in suffix).
+        Modifying an already-cached message in `frozen_prefix` will invalidate upstream KV Cache.
+        """
+        if not self.proactive_expansion_enabled or not self.context_tracker or not self.fingerprint_repo or not request.messages:
             return
 
         session_id = request.session_id or "default"
-        # Extract latest user message or error text
-        user_messages = [m for m in request.messages if m.role == "user"]
-        latest_user_text = user_messages[-1].get_text_content() if user_messages else ""
-        if not latest_user_text:
+        workspace_key = request.metadata.get("workspace_key") or request.metadata.get("project_name") or ""
+
+        # Cache Mode Protection:
+        # If skip_in_cache_mode is enabled and this session has an established compressed history,
+        # skip proactive expansion append to preserve next-turn prefix stability.
+        pe_cfg = getattr(self.config, "proactive_expansion", None)
+        if pe_cfg and getattr(pe_cfg, "skip_in_cache_mode", False) and self.cache_guard.has_compressed_history(session_id):
             return
 
-        recs = self.context_tracker.analyze_query(latest_user_text, session_id=session_id)
+        # Restrict mutation target strictly to the live/suffix zone if provided
+        active_messages = target_messages if target_messages is not None else request.messages
+        if not active_messages:
+            return
+
+        # Extract latest user message or error text from the live zone
+        active_user_messages = [m for m in active_messages if m.role == "user"]
+        target_msg = active_user_messages[-1] if active_user_messages else None
+
+        # If there is no user message in the live zone (e.g. intermediate toolResult turn),
+        # fallback to targeting the last message in the live zone (e.g. tool message)
+        # to guarantee we NEVER mutate messages in frozen_prefix.
+        if target_msg is None:
+            target_msg = active_messages[-1]
+
+        query_text = target_msg.get_text_content()
+        if not query_text:
+            return
+
+        max_exp = getattr(pe_cfg, "max_expansions", 2) if pe_cfg else 2
+        recs = self.context_tracker.analyze_query(
+            query_text,
+            session_id=session_id,
+            workspace_key=workspace_key,
+            max_expansions=max_exp,
+        )
         if not recs:
             return
 
@@ -136,8 +188,11 @@ class CompressionPipeline:
                 expanded_items.append({"hash": r.hash_key, "content": full_text, "reason": r.reason})
 
         if expanded_items:
-            expansion_block = self.context_tracker.format_proactive_expansion(expanded_items)
-            target_msg = user_messages[-1]
+            expansion_block = self.context_tracker.format_proactive_expansion(
+                expanded_items,
+                session_id=session_id,
+                workspace_key=workspace_key,
+            )
             if isinstance(target_msg.content, str):
                 target_msg.content += f"\n\n{expansion_block}"
             elif isinstance(target_msg.content, list):
@@ -206,8 +261,9 @@ class CompressionPipeline:
                 if reclaimed > 0 and "thinking_manager" not in context.applied_compressors:
                     context.applied_compressors.append("thinking_manager")
 
-        # 4.5 Apply Proactive Expansion before live zone compression
-        self.apply_proactive_expansion(request)
+        # 4.5 Apply Proactive Expansion strictly to live zone (compressible_suffix)
+        # to ensure frozen_prefix is never modified (Prompt Cache Invariant)
+        self.apply_proactive_expansion(request, target_messages=compressible_suffix)
 
         # Index historical content into dedup fingerprint store without modifying frozen prefix
         self.dedup_compressor.index_prefix(context, frozen_prefix)

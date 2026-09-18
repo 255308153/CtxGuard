@@ -60,7 +60,11 @@ def create_parser() -> argparse.ArgumentParser:
     learn_parser.add_argument("--db", help="Path to custom .ctxguard.db database file")
     learn_parser.add_argument("-t", "--target", help="Explicit target rule file (e.g. .cursorrules or CLAUDE.local.md)")
     learn_parser.add_argument("-s", "--source", "--scan-dir", dest="source", help="Directory containing Claude Code jsonl logs or project logs")
-    learn_parser.add_argument("--threshold", type=int, help="Loop detection sensitivity threshold")
+    learn_parser.add_argument("--threshold", type=int, default=3, help="Loop detection sensitivity threshold (default: 3)")
+    learn_parser.add_argument("-p", "--project", help="Path to target project (defaults to current working directory)")
+    learn_parser.add_argument("-a", "--agent", default="auto", choices=["auto", "claude", "ctxguard", "gemini", "codex"], help="Target agent ecosystem (default: auto)")
+    learn_parser.add_argument("-m", "--model", default="claude-3-5-sonnet", help="LLM model used for trajectory analysis")
+    learn_parser.add_argument("--all", action="store_true", help="Process all available session trajectories regardless of age")
     learn_parser.add_argument("--apply", action="store_true", help="Atomically write extracted rules to target files (defaults to dry-run preview)")
     learn_parser.add_argument("--dry-run", action="store_true", help="Preview extracted rules without writing to files")
 

@@ -47,6 +47,9 @@ class DedupCompressor(BaseCompressor):
 
         session_id = context.request.session_id or "default"
         if session_id not in self.session_fingerprints:
+            if len(self.session_fingerprints) >= 500:
+                oldest = next(iter(self.session_fingerprints))
+                del self.session_fingerprints[oldest]
             self.session_fingerprints[session_id] = {}
 
         fingerprint_store = self.session_fingerprints[session_id]
@@ -75,6 +78,9 @@ class DedupCompressor(BaseCompressor):
 
         session_id = context.request.session_id or "default"
         if session_id not in self.session_fingerprints:
+            if len(self.session_fingerprints) >= 500:
+                oldest = next(iter(self.session_fingerprints))
+                del self.session_fingerprints[oldest]
             self.session_fingerprints[session_id] = {}
 
         fingerprint_store = self.session_fingerprints[session_id]
@@ -98,10 +104,10 @@ class DedupCompressor(BaseCompressor):
 
             sha = compute_sha256(text)
             short_sha = compute_short_fingerprint(text, length=12)
-
+            # STORAGE INVARIANT 2: Deduplication must strictly be scoped to the current session (session_id).
+            # Never query cross-session global storage to mark content as duplicate, as new LLM conversation contexts
+            # have never seen files from previous sessions and would be completely blinded.
             is_duplicate = (sha in fingerprint_store)
-            if not is_duplicate and self.fingerprint_repo:
-                is_duplicate = (self.fingerprint_repo.get_content(sha) is not None)
 
             if is_duplicate:
                 line_count = len(text.splitlines())

@@ -52,12 +52,23 @@ class LogScanner:
             if local_pi.exists():
                 search_dirs.append(local_pi)
 
+        found_files: List[Path] = []
         for s_dir in search_dirs:
-            for jsonl_file in s_dir.rglob("*.jsonl"):
-                try:
-                    events.extend(cls._parse_claude_jsonl(jsonl_file))
-                except Exception:
-                    continue
+            try:
+                found_files.extend(s_dir.rglob("*.jsonl"))
+            except Exception:
+                continue
+
+        # Sort by mtime desc and only parse the most recent 10 files to prevent unbounded disk scanning
+        now = time.time()
+        found_files.sort(key=lambda f: f.stat().st_mtime if f.exists() else 0, reverse=True)
+        recent_files = [f for f in found_files[:10] if (now - f.stat().st_mtime) < 172800]
+
+        for jsonl_file in recent_files:
+            try:
+                events.extend(cls._parse_claude_jsonl(jsonl_file))
+            except Exception:
+                continue
 
         events.sort(key=lambda e: e.timestamp)
         return events

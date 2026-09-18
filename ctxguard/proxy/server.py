@@ -34,6 +34,12 @@ def create_app(config: AppConfig) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         Console.info(f"CtxGuard Gateway started on http://{config.server.host}:{config.server.port}")
         Console.info(f"Single-file SQLite storage active at: {config.learn.storage_db}")
+        # Pre-warm Jieba tokenizer to eliminate cold start latency
+        try:
+            import jieba
+            jieba.initialize()
+        except Exception:
+            pass
         yield
         await upstream.close()
         Console.info("CtxGuard Gateway shut down cleanly.")
