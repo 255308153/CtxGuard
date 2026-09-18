@@ -112,11 +112,59 @@ class CacheGuard:
         except Exception:
             pass
 
-    def should_cold_recompact(self, idle_seconds: float) -> bool:
+    def get_cache_ttl(self, provider: str = "default", model: str = "") -> int:
+        """Resolve effective prompt cache TTL in seconds for a provider and model family.
+
+        Handles:
+        - Direct provider lookup in provider_cache_ttls (e.g. 'gemini', 'google', 'anthropic')
+        - Gateway proxy / multi-model providers like 'antigravity', inspects model name (e.g. 'gemini-3.8-flash-high')
+        - Model keyword matching (e.g. 'gemini', 'claude', 'deepseek', 'gpt')
+        - Fallback to 'default' key or config.cache_ttl_seconds
+        """
+        provider_lower = (provider or "default").lower()
+        model_lower = (model or "").lower()
+        ttls = getattr(self.config, "provider_cache_ttls", {}) or {}
+
+        # 1. Inspect model name first if provider is a proxy/aggregator (e.g. "antigravity", "default", "custom")
+        if provider_lower in ("antigravity", "default", "custom", ""):
+            if "gemini" in model_lower and "gemini" in ttls:
+                return ttls["gemini"]
+            if ("claude" in model_lower or "anthropic" in model_lower) and "anthropic" in ttls:
+                return ttls["anthropic"]
+            if "deepseek" in model_lower and "deepseek" in ttls:
+                return ttls["deepseek"]
+            if any(k in model_lower for k in ("gpt", "o1", "o3")) and "openai" in ttls:
+                return ttls["openai"]
+
+        # 2. Direct provider match
+        if provider_lower in ttls:
+            return ttls[provider_lower]
+
+        # 3. Model keyword fallback
+        if "gemini" in model_lower and "gemini" in ttls:
+            return ttls["gemini"]
+        if "google" in model_lower and "google" in ttls:
+            return ttls["google"]
+        if ("claude" in model_lower or "anthropic" in model_lower) and "anthropic" in ttls:
+            return ttls["anthropic"]
+        if "deepseek" in model_lower and "deepseek" in ttls:
+            return ttls["deepseek"]
+        if any(k in model_lower for k in ("gpt", "o1", "o3")) and "openai" in ttls:
+            return ttls["openai"]
+
+        return ttls.get("default", self.config.cache_ttl_seconds)
+
+    def should_cold_recompact(
+        self,
+        idle_seconds: float,
+        provider: str = "default",
+        model: str = "",
+    ) -> bool:
         """Determine whether the upstream cache has naturally expired and cold recompact should fire."""
         if not self.config.cold_recompact_enabled:
             return False
-        return idle_seconds > self.config.cache_ttl_seconds
+        ttl = self.get_cache_ttl(provider=provider, model=model)
+        return idle_seconds > ttl
 
     def should_break_cache_for_compression(
         self,
@@ -254,6 +302,7 @@ class CacheGuard:
         request: NormalizedRequest,
         session_id: str = "default",
         idle_seconds: float = 0.0,
+        provider: str = "default",
     ) -> Tuple[List[Message], List[Message], bool]:
         """Split request messages into (frozen_prefix, compressible_suffix, was_cold_recompacted).
 
@@ -268,8 +317,11 @@ class CacheGuard:
 
         self._sync_session_from_db(session_id)
 
+        model = getattr(request, "model", "")
+        req_provider = getattr(request, "provider", provider)
+
         # 1. Cold Recompact Check (fires when cache TTL expired)
-        if self.should_cold_recompact(idle_seconds):
+        if self.should_cold_recompact(idle_seconds, provider=req_provider, model=model):
             # Cache is dead anyway; lift freeze completely for global re-baselining
             self._frozen_system_prompts.pop(session_id, None)
             self._frozen_system_messages.pop(session_id, None)
@@ -401,6 +453,8 @@ class CacheGuard:
         actual_cached: int,
         idle_seconds: float,
         prefix_stable: bool,
+        provider: str = "default",
+        model: str = "",
     ) -> str:
         """Diagnose root cause of cache misses following the 'TTL wins tie-breaker' principle.
 
@@ -415,7 +469,8 @@ class CacheGuard:
             return "cold_start"
         if actual_cached > 0:
             return "hit"
-        if idle_seconds > self.config.cache_ttl_seconds:
+        ttl = self.get_cache_ttl(provider=provider, model=model)
+        if idle_seconds > ttl:
             # TTL wins tie-breaker because it directly informs the decision
             # whether to switch to long-lived (e.g. 1-hour) cache or cold recompact.
             return "ttl_expiry"
@@ -450,3 +505,21 @@ class CacheGuard:
                         "cache_control": {"type": "ephemeral"},
                     }
                 ]
+
+    @staticmethod
+    def derive_prompt_cache_key(session_id: str, model: str = "") -> str:
+        """Derive a deterministic prompt_cache_key per session and model family (Headroom PR-E4)."""
+        clean_sid = session_id.strip() if session_id else "default"
+        clean_model = model.strip().lower() if model else "default"
+        model_family = clean_model.split("-")[0] if "-" in clean_model else clean_model
+        return f"{clean_sid}_{model_family}"
+
+    def apply_prompt_cache_key(self, payload: Dict[str, Any], session_id: str, model: str = "") -> None:
+        """Inject prompt_cache_key into OpenAI-compatible payload if missing (Headroom PR-E4)."""
+        if not getattr(self.config, "inject_prompt_cache_key", True):
+            return
+        if not session_id or session_id == "default":
+            return
+        if "prompt_cache_key" not in payload or not payload.get("prompt_cache_key"):
+            payload["prompt_cache_key"] = self.derive_prompt_cache_key(session_id, model)
+

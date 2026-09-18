@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS requests (
     applied_compressors TEXT DEFAULT '[]',
     cached_tokens INTEGER DEFAULT 0,
     cache_type TEXT DEFAULT 'none',
+    status TEXT DEFAULT 'completed',
     FOREIGN KEY(session_id) REFERENCES sessions(session_id)
 );
 

@@ -115,6 +115,8 @@ class NormalizedRequest:
     raw_payload: Dict[str, Any] = field(default_factory=dict)
     raw_bytes: Optional[bytes] = None
     session_id: str = "default"
+    provider: str = "default"
+    idle_seconds: float = 0.0
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 

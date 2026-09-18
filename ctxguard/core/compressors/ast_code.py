@@ -367,13 +367,6 @@ class ASTCodeCompressor(BaseCompressor):
                 sha = compute_sha256(code_body)
                 short_sha = compute_short_fingerprint(code_body, length=12)
 
-                # Save original code into fingerprint store
-                fingerprint_store[sha] = code_body
-                fingerprint_store[short_sha] = code_body
-                if self.fingerprint_repo:
-                    self.fingerprint_repo.save_fingerprint(sha, session_id, code_body)
-                    self.fingerprint_repo.save_fingerprint(short_sha, session_id, code_body)
-
                 # Priority 1: High-precision Tree-sitter multi-language parser
                 skeleton = TreeSitterSkeletonizer.skeletonize(
                     code_body,
@@ -400,6 +393,10 @@ class ASTCodeCompressor(BaseCompressor):
                     )
 
                 if skeleton and len(skeleton) < len(code_body):
+                    fingerprint_store[sha] = code_body
+                    fingerprint_store[short_sha] = code_body
+                    if self.fingerprint_repo:
+                        self.fingerprint_repo.save_fingerprint(short_sha, session_id, code_body)
                     return f"```{lang}\n{skeleton}\n```"
                 return full_block
 
@@ -410,12 +407,6 @@ class ASTCodeCompressor(BaseCompressor):
         if len(lines) >= self.config.min_lines:
             sha = compute_sha256(text)
             short_sha = compute_short_fingerprint(text, length=12)
-
-            fingerprint_store[sha] = text
-            fingerprint_store[short_sha] = text
-            if self.fingerprint_repo:
-                self.fingerprint_repo.save_fingerprint(sha, session_id, text)
-                self.fingerprint_repo.save_fingerprint(short_sha, session_id, text)
 
             skeleton = TreeSitterSkeletonizer.skeletonize(
                 text,
@@ -438,6 +429,10 @@ class ASTCodeCompressor(BaseCompressor):
                 )
 
             if skeleton and len(skeleton) < len(text):
+                fingerprint_store[sha] = text
+                fingerprint_store[short_sha] = text
+                if self.fingerprint_repo:
+                    self.fingerprint_repo.save_fingerprint(short_sha, session_id, text)
                 return skeleton
 
         return text

@@ -108,17 +108,14 @@ class ToolDeltaCompressor(BaseCompressor):
         sha = compute_sha256(text)
         short_sha = compute_short_fingerprint(text, length=12)
 
-        if session_id not in self.session_fingerprints:
-            self.session_fingerprints[session_id] = {}
-        self.session_fingerprints[session_id][sha] = text
-        self.session_fingerprints[session_id][short_sha] = text
-
-        if self.fingerprint_repo:
-            self.fingerprint_repo.save_fingerprint(sha, session_id, text)
-            self.fingerprint_repo.save_fingerprint(short_sha, session_id, text)
-
         # Case 1: Unchanged state
         if total_changes == 0:
+            if session_id not in self.session_fingerprints:
+                self.session_fingerprints[session_id] = {}
+            self.session_fingerprints[session_id][sha] = text
+            self.session_fingerprints[session_id][short_sha] = text
+            if self.fingerprint_repo:
+                self.fingerprint_repo.save_fingerprint(short_sha, session_id, text)
             if self.tool_injection_enabled:
                 return f"[CtxGuard Tool Delta: State unchanged ({total_items} items identical to previous check). Use ctx_expand('{short_sha}') for full output]"
             return f"[CtxGuard Tool Delta: State unchanged ({total_items} items identical to previous check)]"
@@ -126,6 +123,12 @@ class ToolDeltaCompressor(BaseCompressor):
         # Case 2: Small delta within thresholds
         delta_ratio = total_changes / max(1, total_items)
         if total_changes <= self.config.max_delta_items and delta_ratio <= self.config.max_delta_ratio:
+            if session_id not in self.session_fingerprints:
+                self.session_fingerprints[session_id] = {}
+            self.session_fingerprints[session_id][sha] = text
+            self.session_fingerprints[session_id][short_sha] = text
+            if self.fingerprint_repo:
+                self.fingerprint_repo.save_fingerprint(short_sha, session_id, text)
             unchanged_count = total_items - len(added)
             delta_lines = [
                 f"[CtxGuard Tool Delta: {total_items} total items. Showing changes since previous check:]"

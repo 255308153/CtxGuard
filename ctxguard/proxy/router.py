@@ -41,6 +41,7 @@ from ctxguard.core.semantic_cache import SemanticCache
 from ctxguard.core.context import RequestContext
 from ctxguard.storage.savings_ledger import record_savings_event
 from ctxguard.utils.token_counter import estimate_tokens_from_text
+from ctxguard.core.guards.session_serializer import SessionSerializer
 
 
 def extract_session_and_project(request: Request, norm_req: NormalizedRequest) -> tuple[str, str, str]:
@@ -55,7 +56,7 @@ def extract_session_and_project(request: Request, norm_req: NormalizedRequest) -
         or request.headers.get("x-project-name")
         or request.headers.get("x-project")
         or request.headers.get("x-project-path")
-        or request.headers.get("x-headroom-project")
+        or request.headers.get("x-ctxguard-project")
         or request.headers.get("x-cwd")
         or request.headers.get("x-workspace")
         or ""
@@ -246,6 +247,9 @@ def create_router(
     if semantic_cache is None:
         sc_config = getattr(config, "semantic_cache", None)
         semantic_cache = SemanticCache(config=sc_config)
+
+    session_serializer = SessionSerializer(max_sessions=1000)
+    router.session_serializer = session_serializer
 
     # Track session last request timestamps for TTL expiry and cold recompact
     session_last_activity: Dict[str, float] = {}
@@ -893,278 +897,311 @@ def create_router(
         norm_req.idle_seconds = idle_seconds
         norm_req.provider = provider_name
 
-        # 1. Virtual tool local execution check (0 upstream tokens!)
-        local_tool_resp = virtual_tool_executor.check_and_execute(norm_req)
-        if local_tool_resp:
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            if stats_repo:
-                stats_repo.record_request(
-                    session_id=session_id,
-                    protocol="openai",
-                    model=norm_req.model,
-                    raw_tokens=0,
-                    optimized_tokens=0,
-                    latency_ms=duration_ms,
-                    applied_compressors=["virtual_tool_local_expand"],
-                    project_name=project_name,
-                    prompt_preview=prompt_preview,
-                )
-            return JSONResponse(
-                content=local_tool_resp.raw_response,
-                headers={
-                    "X-CtxGuard-Virtual-Tool": "true",
-                    "X-CtxGuard-Process-Time-Ms": f"{duration_ms:.2f}",
-                },
-            )
+        # Session Serialization Queue (Headroom #2085)
+        unlock_session = None
+        cg_cfg = getattr(config, "cache_guard", None)
+        if cg_cfg and getattr(cg_cfg, "session_serialization_enabled", True):
+            timeout = getattr(cg_cfg, "session_queue_timeout_seconds", 45.0)
+            unlock_session = await session_serializer.acquire(session_id, timeout=timeout)
 
-        # 1.2 Semantic Cache Lookup (0 upstream tokens, 100% savings, ~1ms latency)
-        # Snapshot pristine messages before any pipeline or graph injections
-        pristine_messages = [Message(role=m.role, content=m.content) for m in norm_req.messages]
-        user_query_text = ""
-        for m in reversed(norm_req.messages):
-            if m.role == "user":
-                user_query_text = m.get_text_content()
-                break
-
-        if semantic_cache and semantic_cache.config.enabled:
-            cached_hit = semantic_cache.get(
-                query=user_query_text,
-                messages=pristine_messages,
-                model=norm_req.model,
-            )
-            if cached_hit:
-                entry, sim, hit_type = cached_hit
+        lock_delegated = False
+        try:
+            # 1. Virtual tool local execution check (0 upstream tokens!)
+            local_tool_resp = virtual_tool_executor.check_and_execute(norm_req)
+            if local_tool_resp:
                 duration_ms = (time.perf_counter() - start_time) * 1000
-                record_savings_event(
-                    tokens_before=entry.raw_tokens or 150,
-                    tokens_after=0,
-                    model=norm_req.model,
-                    client=project_name,
-                    source="semantic_cache",
-                )
                 if stats_repo:
                     stats_repo.record_request(
                         session_id=session_id,
                         protocol="openai",
                         model=norm_req.model,
-                        raw_tokens=entry.raw_tokens or 150,
+                        raw_tokens=0,
                         optimized_tokens=0,
                         latency_ms=duration_ms,
-                        applied_compressors=[f"semantic_cache_{hit_type}_hit"],
+                        applied_compressors=["virtual_tool_local_expand"],
                         project_name=project_name,
                         prompt_preview=prompt_preview,
                     )
-                resp_headers = {
-                    "X-CtxGuard-Semantic-Cache": f"HIT-{hit_type.upper()}",
-                    "X-CtxGuard-Semantic-Similarity": f"{sim:.4f}",
-                    "X-CtxGuard-Process-Time-Ms": f"{duration_ms:.2f}",
-                    "Content-Type": "application/json",
-                }
-                return Response(
-                    content=entry.response_body,
-                    headers=resp_headers,
-                    media_type="application/json",
+                return JSONResponse(
+                    content=local_tool_resp.raw_response,
+                    headers={
+                        "X-CtxGuard-Virtual-Tool": "true",
+                        "X-CtxGuard-Process-Time-Ms": f"{duration_ms:.2f}",
+                    },
                 )
 
-        # 1.5 Personal Knowledge Graph Injection & Learning (Controlled by Config Switch)
-        if graph_engine and getattr(getattr(config, "piggyback_extraction", None), "enabled", True):
-            try:
-                temp_ctx = RequestContext(request=norm_req)
-                graph_engine.inject_graph_context(temp_ctx)
-            except Exception as ge_err:
-                pass
+            # 1.2 Semantic Cache Lookup (0 upstream tokens, 100% savings, ~1ms latency)
+            # Snapshot pristine messages before any pipeline or graph injections
+            pristine_messages = [Message(role=m.role, content=m.content) for m in norm_req.messages]
+            user_query_text = ""
+            for m in reversed(norm_req.messages):
+                if m.role == "user":
+                    user_query_text = m.get_text_content()
+                    break
 
-        # 2. Process through Compression Pipeline
-        req_ctx = await pipeline.process(norm_req)
+            if semantic_cache and semantic_cache.config.enabled:
+                cached_hit = semantic_cache.get(
+                    query=user_query_text,
+                    messages=pristine_messages,
+                    model=norm_req.model,
+                )
+                if cached_hit:
+                    entry, sim, hit_type = cached_hit
+                    duration_ms = (time.perf_counter() - start_time) * 1000
+                    record_savings_event(
+                        tokens_before=entry.raw_tokens or 150,
+                        tokens_after=0,
+                        model=norm_req.model,
+                        client=project_name,
+                        source="semantic_cache",
+                    )
+                    if stats_repo:
+                        stats_repo.record_request(
+                            session_id=session_id,
+                            protocol="openai",
+                            model=norm_req.model,
+                            raw_tokens=entry.raw_tokens or 150,
+                            optimized_tokens=0,
+                            latency_ms=duration_ms,
+                            applied_compressors=[f"semantic_cache_{hit_type}_hit"],
+                            project_name=project_name,
+                            prompt_preview=prompt_preview,
+                        )
+                    resp_headers = {
+                        "X-CtxGuard-Semantic-Cache": f"HIT-{hit_type.upper()}",
+                        "X-CtxGuard-Semantic-Similarity": f"{sim:.4f}",
+                        "X-CtxGuard-Process-Time-Ms": f"{duration_ms:.2f}",
+                        "Content-Type": "application/json",
+                    }
+                    return Response(
+                        content=entry.response_body,
+                        headers=resp_headers,
+                        media_type="application/json",
+                    )
 
-        # 3. Build upstream payload
-        upstream_payload = openai_adapter.build_upstream_payload(req_ctx.request)
-        client_headers = dict(request.headers)
+            # 1.5 Personal Knowledge Graph Injection & Learning (Controlled by Config Switch)
+            if graph_engine and getattr(getattr(config, "piggyback_extraction", None), "enabled", True):
+                try:
+                    temp_ctx = RequestContext(request=norm_req)
+                    graph_engine.inject_graph_context(temp_ctx)
+                except Exception as ge_err:
+                    pass
 
-        provider = upstream.resolve_provider(provider_name)
-        headers = upstream.build_headers("openai", provider, client_headers)
+            # 2. Process through Compression Pipeline
+            req_ctx = await pipeline.process(norm_req)
 
-        # Normalize model aliases for upstream providers.
-        # DeepSeek API now only supports "deepseek-flash" and "deepseek-v4-pro";
-        # map legacy aliases to "deepseek-flash" (do NOT map to the retired "deepseek-chat").
-        if provider_name == "deepseek":
-            if upstream_payload.get("model") in ("deepseek-v4-flash", "deepseek-v4-flash-vision-exp"):
-                upstream_payload["model"] = "deepseek-flash"
-        elif upstream_payload.get("model") == "gpt-5.6-luna":
-            upstream_payload["model"] = "gpt-5.5"
+            # 3. Build upstream payload
+            upstream_payload = openai_adapter.build_upstream_payload(req_ctx.request)
+            client_headers = dict(request.headers)
 
-        # Check if request payload was modified by compressors, graph injection, model aliasing,
-        # or if historical prefix was compressed and frozen in prior turns.
-        # CRITICAL CACHE INVARIANT (Iron Invariant 1 & 2):
-        # Forward raw client bytes ONLY when the entire payload is genuinely identical to client input (no compression anywhere).
-        has_compressed_history = False
-        if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-            has_compressed_history = pipeline.cache_guard.has_compressed_history(session_id)
+            # Apply prompt cache key affinity (Headroom PR-E4)
+            if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+                pipeline.cache_guard.apply_prompt_cache_key(upstream_payload, session_id, norm_req.model)
 
-        can_passthrough_raw = (
-            not req_ctx.applied_compressors
-            and not has_compressed_history
-            and (req_ctx.original_tokens == req_ctx.optimized_tokens)
-            and not req_ctx.metadata.get("graph_injected")
-            and (raw_body.get("model") == upstream_payload.get("model"))
-            and (not norm_req.stream or bool(raw_body.get("stream_options")))
-        )
-        raw_bytes_to_send = body_bytes if can_passthrough_raw else None
-        fwd_kwargs = {"raw_body": raw_bytes_to_send} if raw_bytes_to_send is not None else {}
+            provider = upstream.resolve_provider(provider_name)
+            headers = upstream.build_headers("openai", provider, client_headers)
 
-        if norm_req.stream:
-            # Ensure OpenAI / DeepSeek returns usage in stream chunks
-            if "stream_options" not in upstream_payload:
-                upstream_payload["stream_options"] = {"include_usage": True}
+            # Normalize model aliases for upstream providers.
+            if provider_name == "deepseek":
+                if upstream_payload.get("model") in ("deepseek-v4-flash", "deepseek-v4-flash-vision-exp"):
+                    upstream_payload["model"] = "deepseek-flash"
+            elif upstream_payload.get("model") == "gpt-5.6-luna":
+                upstream_payload["model"] = "gpt-5.5"
 
-            stream_gen = upstream.forward_stream(
-                "v1/chat/completions", upstream_payload, headers, provider_name, **fwd_kwargs
+            # Check if request payload was modified by compressors, graph injection, model aliasing,
+            # or if historical prefix was compressed and frozen in prior turns.
+            has_compressed_history = False
+            if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+                has_compressed_history = pipeline.cache_guard.has_compressed_history(session_id)
+
+            can_passthrough_raw = (
+                not req_ctx.applied_compressors
+                and not has_compressed_history
+                and (req_ctx.original_tokens == req_ctx.optimized_tokens)
+                and not req_ctx.metadata.get("graph_injected")
+                and (raw_body.get("model") == upstream_payload.get("model"))
+                and (not norm_req.stream or bool(raw_body.get("stream_options")))
+                and (raw_body.get("prompt_cache_key") == upstream_payload.get("prompt_cache_key"))
             )
-            if streaming_vtool_handler:
-                stream_gen = streaming_vtool_handler.wrap_stream(
-                    stream_gen=stream_gen,
-                    upstream_payload=upstream_payload,
-                    headers=headers,
-                    provider_name=provider_name,
-                    upstream_client=upstream,
-                    protocol="openai",
-                    path="v1/chat/completions",
-                    session_id=session_id,
-                    fwd_kwargs=fwd_kwargs,
-                )
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            if req_ctx.original_tokens > req_ctx.optimized_tokens:
-                record_savings_event(
-                    tokens_before=req_ctx.original_tokens,
-                    tokens_after=req_ctx.optimized_tokens,
-                    model=norm_req.model,
-                    client=project_name,
-                    source="proxy_pipeline",
-                )
-            req_id = None
-            if stats_repo:
-                req_id = stats_repo.record_request(
-                    session_id=session_id,
-                    protocol="openai",
-                    model=norm_req.model,
-                    raw_tokens=req_ctx.original_tokens,
-                    optimized_tokens=req_ctx.optimized_tokens,
-                    latency_ms=duration_ms,
-                    applied_compressors=req_ctx.applied_compressors,
-                    project_name=project_name,
-                    prompt_preview=prompt_preview,
-                )
+            raw_bytes_to_send = body_bytes if can_passthrough_raw else None
+            fwd_kwargs = {"raw_body": raw_bytes_to_send} if raw_bytes_to_send is not None else {}
 
-            def on_openai_stream_complete(cached_toks: int, c_type: str, prompt_toks: Optional[int] = None):
-                if req_id and stats_repo and (cached_toks > 0 or (prompt_toks and prompt_toks > 0)):
-                    stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
+            if norm_req.stream:
+                # Ensure OpenAI / DeepSeek returns usage in stream chunks
+                if "stream_options" not in upstream_payload:
+                    upstream_payload["stream_options"] = {"include_usage": True}
+
+                stream_gen = upstream.forward_stream(
+                    "v1/chat/completions", upstream_payload, headers, provider_name, **fwd_kwargs
+                )
+                if streaming_vtool_handler:
+                    stream_gen = streaming_vtool_handler.wrap_stream(
+                        stream_gen=stream_gen,
+                        upstream_payload=upstream_payload,
+                        headers=headers,
+                        provider_name=provider_name,
+                        upstream_client=upstream,
+                        protocol="openai",
+                        path="v1/chat/completions",
+                        session_id=session_id,
+                        fwd_kwargs=fwd_kwargs,
+                    )
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                if req_ctx.original_tokens > req_ctx.optimized_tokens:
+                    record_savings_event(
+                        tokens_before=req_ctx.original_tokens,
+                        tokens_after=req_ctx.optimized_tokens,
+                        model=norm_req.model,
+                        client=project_name,
+                        source="proxy_pipeline",
+                    )
+                req_id = None
+                if stats_repo:
+                    req_id = stats_repo.record_request(
+                        session_id=session_id,
+                        protocol="openai",
+                        model=norm_req.model,
+                        raw_tokens=req_ctx.original_tokens,
+                        optimized_tokens=req_ctx.optimized_tokens,
+                        latency_ms=duration_ms,
+                        applied_compressors=req_ctx.applied_compressors,
+                        project_name=project_name,
+                        prompt_preview=prompt_preview,
+                        status="streaming",
+                    )
+
+                def on_openai_stream_complete(cached_toks: int, c_type: str, prompt_toks: Optional[int] = None):
+                    if req_id and stats_repo:
+                        if cached_toks > 0 or (prompt_toks and prompt_toks > 0):
+                            stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
+                        else:
+                            stats_repo.mark_request_completed(req_id)
+                    if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+                        pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
+                    session_last_activity[session_id] = time.time()
+
+                lock_delegated = True
+                stream_unlock = unlock_session
+
+                async def locked_stream_gen(inner_gen):
+                    try:
+                        async for chunk in inner_gen:
+                            yield chunk
+                    finally:
+                        if stream_unlock:
+                            stream_unlock()
+                        if req_id and stats_repo:
+                            stats_repo.mark_request_completed(req_id)
+
+                return StreamingResponse(
+                    locked_stream_gen(
+                        SSEStreamHandler.passthrough_stream(stream_gen, on_complete=on_openai_stream_complete, protocol="openai")
+                    ),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "X-CtxGuard-Saved-Ratio": str(req_ctx.compression_ratio),
+                    },
+                )
+            else:
+                resp = await upstream.forward_request(
+                    "v1/chat/completions", upstream_payload, headers, provider_name, **fwd_kwargs
+                )
+                duration_ms = (time.perf_counter() - start_time) * 1000
+
+                # Virtual Tool Interception (CtxGuard Engine Phase 5/6: 100% Zero-Crash CCR Loop)
+                if resp.status_code == 200 and vtool_handler:
+                    try:
+                        resp_json = orjson.loads(resp.content)
+                        if vtool_handler.has_virtual_tool_calls(resp_json, protocol="openai"):
+                            final_bytes, extra_rounds, final_status = await vtool_handler.handle_non_streaming(
+                                initial_response_bytes=resp.content,
+                                upstream_payload=upstream_payload,
+                                headers=headers,
+                                provider_name=provider_name,
+                                upstream_client=upstream,
+                                protocol="openai",
+                                path="v1/chat/completions",
+                                session_id=session_id,
+                                fwd_kwargs=fwd_kwargs,
+                            )
+                            if extra_rounds > 0:
+                                duration_ms = (time.perf_counter() - start_time) * 1000
+                                req_ctx.applied_compressors.append("virtual_tool_recursive_expand")
+                                resp = httpx.Response(
+                                    status_code=final_status,
+                                    content=final_bytes,
+                                    headers=resp.headers,
+                                )
+                    except Exception as v_err:
+                        logger.warning(f"[VirtualToolHandler] OpenAI response interception failed: {v_err}")
+
+                if req_ctx.original_tokens > req_ctx.optimized_tokens:
+                    record_savings_event(
+                        tokens_before=req_ctx.original_tokens,
+                        tokens_after=req_ctx.optimized_tokens,
+                        model=norm_req.model,
+                        client=project_name,
+                        source="proxy_pipeline",
+                    )
+                cached_toks, c_type, prompt_toks = parse_cache_stats(resp.content, protocol="openai")
+                effective_opt = max(prompt_toks, cached_toks) if prompt_toks else req_ctx.optimized_tokens
+                effective_raw = max(req_ctx.original_tokens, effective_opt)
+                if stats_repo:
+                    stats_repo.record_request(
+                        session_id=session_id,
+                        protocol="openai",
+                        model=norm_req.model,
+                        raw_tokens=effective_raw,
+                        optimized_tokens=effective_opt,
+                        latency_ms=duration_ms,
+                        applied_compressors=req_ctx.applied_compressors,
+                        project_name=project_name,
+                        prompt_preview=prompt_preview,
+                        cached_tokens=cached_toks,
+                        cache_type=c_type,
+                        status="completed",
+                    )
                 if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
                     pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
                 session_last_activity[session_id] = time.time()
 
-            return StreamingResponse(
-                SSEStreamHandler.passthrough_stream(stream_gen, on_complete=on_openai_stream_complete, protocol="openai"),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-CtxGuard-Saved-Ratio": str(req_ctx.compression_ratio),
-                },
-            )
-        else:
-            resp = await upstream.forward_request(
-                "v1/chat/completions", upstream_payload, headers, provider_name, **fwd_kwargs
-            )
-            duration_ms = (time.perf_counter() - start_time) * 1000
+                response_bytes_to_return = resp.content
+                if resp.status_code == 200 and graph_engine and graph_engine.piggyback_enabled:
+                    try:
+                        resp_json = orjson.loads(resp.content)
+                        choices = resp_json.get("choices")
+                        if isinstance(choices, list) and choices:
+                            delta_or_msg = choices[0].get("message", {})
+                            orig_text = delta_or_msg.get("content", "")
+                            if isinstance(orig_text, str) and "<memory>" in orig_text.lower():
+                                clean_text, extracted_memories = graph_engine.parse_and_strip_memory(orig_text)
+                                delta_or_msg["content"] = clean_text
+                                response_bytes_to_return = orjson.dumps(resp_json)
+                                if extracted_memories:
+                                    graph_engine.apply_extracted_memories(extracted_memories)
+                    except Exception as pb_err:
+                        pass
 
-            # Virtual Tool Interception (Headroom Phase 5/6: 100% Zero-Crash CCR Loop)
-            if resp.status_code == 200 and vtool_handler:
-                try:
-                    resp_json = orjson.loads(resp.content)
-                    if vtool_handler.has_virtual_tool_calls(resp_json, protocol="openai"):
-                        final_bytes, extra_rounds, final_status = await vtool_handler.handle_non_streaming(
-                            initial_response_bytes=resp.content,
-                            upstream_payload=upstream_payload,
-                            headers=headers,
-                            provider_name=provider_name,
-                            upstream_client=upstream,
-                            protocol="openai",
-                            path="v1/chat/completions",
-                            session_id=session_id,
-                            fwd_kwargs=fwd_kwargs,
-                        )
-                        if extra_rounds > 0:
-                            duration_ms = (time.perf_counter() - start_time) * 1000
-                            req_ctx.applied_compressors.append("virtual_tool_recursive_expand")
-                            resp = httpx.Response(
-                                status_code=final_status,
-                                content=final_bytes,
-                                headers=resp.headers,
-                            )
-                except Exception as v_err:
-                    logger.warning(f"[VirtualToolHandler] OpenAI response interception failed: {v_err}")
+                if resp.status_code == 200 and semantic_cache and semantic_cache.config.enabled:
+                    semantic_cache.put(
+                        query=user_query_text,
+                        messages=pristine_messages,
+                        model=norm_req.model,
+                        response_body=response_bytes_to_return,
+                        raw_tokens=req_ctx.original_tokens,
+                    )
 
-            if req_ctx.original_tokens > req_ctx.optimized_tokens:
-                record_savings_event(
-                    tokens_before=req_ctx.original_tokens,
-                    tokens_after=req_ctx.optimized_tokens,
-                    model=norm_req.model,
-                    client=project_name,
-                    source="proxy_pipeline",
+                return Response(
+                    content=response_bytes_to_return,
+                    status_code=resp.status_code,
+                    media_type="application/json",
+                    headers={"X-CtxGuard-Saved-Ratio": str(req_ctx.compression_ratio)},
                 )
-            cached_toks, c_type, prompt_toks = parse_cache_stats(resp.content, protocol="openai")
-            effective_opt = max(prompt_toks, cached_toks) if prompt_toks else req_ctx.optimized_tokens
-            effective_raw = max(req_ctx.original_tokens, effective_opt)
-            if stats_repo:
-                stats_repo.record_request(
-                    session_id=session_id,
-                    protocol="openai",
-                    model=norm_req.model,
-                    raw_tokens=effective_raw,
-                    optimized_tokens=effective_opt,
-                    latency_ms=duration_ms,
-                    applied_compressors=req_ctx.applied_compressors,
-                    project_name=project_name,
-                    prompt_preview=prompt_preview,
-                    cached_tokens=cached_toks,
-                    cache_type=c_type,
-                )
-            if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-                pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
-            session_last_activity[session_id] = time.time()
-
-            response_bytes_to_return = resp.content
-            if resp.status_code == 200 and graph_engine and graph_engine.piggyback_enabled:
-                try:
-                    resp_json = orjson.loads(resp.content)
-                    choices = resp_json.get("choices")
-                    if isinstance(choices, list) and choices:
-                        delta_or_msg = choices[0].get("message", {})
-                        orig_text = delta_or_msg.get("content", "")
-                        if isinstance(orig_text, str) and "<memory>" in orig_text.lower():
-                            clean_text, extracted_memories = graph_engine.parse_and_strip_memory(orig_text)
-                            delta_or_msg["content"] = clean_text
-                            response_bytes_to_return = orjson.dumps(resp_json)
-                            if extracted_memories:
-                                graph_engine.apply_extracted_memories(extracted_memories)
-                except Exception as pb_err:
-                    pass
-
-            if resp.status_code == 200 and semantic_cache and semantic_cache.config.enabled:
-                semantic_cache.put(
-                    query=user_query_text,
-                    messages=pristine_messages,
-                    model=norm_req.model,
-                    response_body=response_bytes_to_return,
-                    raw_tokens=req_ctx.original_tokens,
-                )
-
-            return Response(
-                content=response_bytes_to_return,
-                status_code=resp.status_code,
-                media_type="application/json",
-                headers={"X-CtxGuard-Saved-Ratio": str(req_ctx.compression_ratio)},
-            )
+        finally:
+            if not lock_delegated and unlock_session:
+                unlock_session()
 
     @router.post("/v1/responses")
     @router.post("/responses")
@@ -1322,137 +1359,177 @@ def create_router(
             provider_name = "codex" if "codex" in config.upstream.providers else config.upstream.default_provider
         norm_req.provider = provider_name
 
-        req_ctx = await pipeline.process(norm_req)
+        # Session Serialization Queue (Headroom #2085)
+        unlock_session = None
+        cg_cfg = getattr(config, "cache_guard", None)
+        if cg_cfg and getattr(cg_cfg, "session_serialization_enabled", True):
+            timeout = getattr(cg_cfg, "session_queue_timeout_seconds", 45.0)
+            unlock_session = await session_serializer.acquire(session_id, timeout=timeout)
 
-        has_compressed_history = False
-        if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-            has_compressed_history = pipeline.cache_guard.has_compressed_history(session_id)
+        lock_delegated = False
+        try:
+            req_ctx = await pipeline.process(norm_req)
 
-        # Keep raw_body JSON containers aligned with optimized / replayed history
-        if text_refs and (req_ctx.applied_compressors or has_compressed_history):
-            for msg_idx, container, key in text_refs:
-                if msg_idx < len(req_ctx.request.messages):
-                    container[key] = req_ctx.request.messages[msg_idx].get_text_content()
+            # Apply prompt cache key affinity (Headroom PR-E4)
+            if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+                pipeline.cache_guard.apply_prompt_cache_key(raw_body, session_id, norm_req.model)
 
-        can_passthrough_raw = (
-            not req_ctx.applied_compressors
-            and not has_compressed_history
-            and (req_ctx.original_tokens == req_ctx.optimized_tokens)
-        )
-        fwd_bytes = body_bytes if can_passthrough_raw else orjson.dumps(raw_body)
-        upstream_payload = raw_body
-        headers = upstream.build_headers("openai", upstream.resolve_provider(provider_name), dict(request.headers))
-        
-        req_path = request.url.path
-        if req_path.startswith("/p/"):
-            parts = req_path.split("/", 3)
-            if len(parts) >= 4:
-                req_path = "/" + parts[3]
-        path = req_path.lstrip("/")
-        fwd_kwargs = {"raw_body": fwd_bytes}
-        duration_ms = (time.perf_counter() - start_time) * 1000
-        if req_ctx.original_tokens > req_ctx.optimized_tokens:
-            record_savings_event(
-                tokens_before=req_ctx.original_tokens,
-                tokens_after=req_ctx.optimized_tokens,
-                model=norm_req.model,
-                client=project_name,
-                source="proxy_pipeline",
+            has_compressed_history = False
+            if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+                has_compressed_history = pipeline.cache_guard.has_compressed_history(session_id)
+
+            # Keep raw_body JSON containers aligned with optimized / replayed history
+            if text_refs and (req_ctx.applied_compressors or has_compressed_history):
+                for msg_idx, container, key in text_refs:
+                    if msg_idx < len(req_ctx.request.messages):
+                        container[key] = req_ctx.request.messages[msg_idx].get_text_content()
+
+            orig_prompt_cache_key = orjson.loads(body_bytes).get("prompt_cache_key") if body_bytes else None
+            can_passthrough_raw = (
+                not req_ctx.applied_compressors
+                and not has_compressed_history
+                and (req_ctx.original_tokens == req_ctx.optimized_tokens)
+                and (raw_body.get("prompt_cache_key") == orig_prompt_cache_key)
             )
-
-        req_id = None
-        if stats_repo:
-            req_id = stats_repo.record_request(
-                session_id=session_id,
-                protocol="openai-responses",
-                model=norm_req.model,
-                raw_tokens=req_ctx.original_tokens,
-                optimized_tokens=req_ctx.optimized_tokens,
-                latency_ms=duration_ms,
-                applied_compressors=req_ctx.applied_compressors,
-                project_name=project_name,
-                prompt_preview=prompt_preview,
-            )
-
-        if norm_req.stream:
-            # Ensure headers allow text/event-stream
-            headers["Accept"] = "text/event-stream"
-            headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            try:
-                upstream_resp = await upstream.send_stream_request(
-                    path, headers=headers, provider_name=provider_name, **fwd_kwargs
-                )
-                logger.info(f"[Responses] Upstream returned status {upstream_resp.status_code} for path '{path}'")
-            except Exception as exc:
-                logger.error(f"[Responses] Upstream connection exception on '{path}': {type(exc)}: {exc}", exc_info=True)
-                return JSONResponse(
-                    {"error": {"message": f"CtxGuard upstream connection error: {str(exc)}", "code": 502}},
-                    status_code=502,
+            fwd_bytes = body_bytes if can_passthrough_raw else orjson.dumps(raw_body)
+            upstream_payload = raw_body
+            headers = upstream.build_headers("openai", upstream.resolve_provider(provider_name), dict(request.headers))
+            
+            req_path = request.url.path
+            if req_path.startswith("/p/"):
+                parts = req_path.split("/", 3)
+                if len(parts) >= 4:
+                    req_path = "/" + parts[3]
+            path = req_path.lstrip("/")
+            fwd_kwargs = {"raw_body": fwd_bytes}
+            duration_ms = (time.perf_counter() - start_time) * 1000
+            if req_ctx.original_tokens > req_ctx.optimized_tokens:
+                record_savings_event(
+                    tokens_before=req_ctx.original_tokens,
+                    tokens_after=req_ctx.optimized_tokens,
+                    model=norm_req.model,
+                    client=project_name,
+                    source="proxy_pipeline",
                 )
 
-            if upstream_resp.status_code >= 400:
+            req_id = None
+            if stats_repo:
+                req_id = stats_repo.record_request(
+                    session_id=session_id,
+                    protocol="openai-responses",
+                    model=norm_req.model,
+                    raw_tokens=req_ctx.original_tokens,
+                    optimized_tokens=req_ctx.optimized_tokens,
+                    latency_ms=duration_ms,
+                    applied_compressors=req_ctx.applied_compressors,
+                    project_name=project_name,
+                    prompt_preview=prompt_preview,
+                    status="streaming" if norm_req.stream else "completed",
+                )
+
+            if norm_req.stream:
+                # Ensure headers allow text/event-stream
+                headers["Accept"] = "text/event-stream"
+                headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 try:
-                    error_bytes = await upstream_resp.aread()
-                finally:
-                    await upstream_resp.aclose()
-                    stream_client = getattr(upstream_resp, "_stream_client", None)
-                    if stream_client:
-                        await stream_client.aclose()
-                logger.error(f"[Responses] Upstream error {upstream_resp.status_code} on '{path}': {error_bytes.decode('utf-8', errors='ignore')[:500]}")
-                return Response(
-                    content=error_bytes,
-                    status_code=upstream_resp.status_code,
-                    media_type=upstream_resp.headers.get("content-type") or "application/json",
-                )
+                    upstream_resp = await upstream.send_stream_request(
+                        path, headers=headers, provider_name=provider_name, **fwd_kwargs
+                    )
+                    logger.info(f"[Responses] Upstream returned status {upstream_resp.status_code} for path '{path}'")
+                except Exception as exc:
+                    logger.error(f"[Responses] Upstream connection exception on '{path}': {type(exc)}: {exc}", exc_info=True)
+                    return JSONResponse(
+                        {"error": {"message": f"CtxGuard upstream connection error: {str(exc)}", "code": 502}},
+                        status_code=502,
+                    )
 
-            async def body_generator():
-                try:
-                    async for chunk in upstream_resp.aiter_bytes():
-                        if chunk:
+                if upstream_resp.status_code >= 400:
+                    try:
+                        error_bytes = await upstream_resp.aread()
+                    finally:
+                        await upstream_resp.aclose()
+                        stream_client = getattr(upstream_resp, "_stream_client", None)
+                        if stream_client:
+                            await stream_client.aclose()
+                    logger.error(f"[Responses] Upstream error {upstream_resp.status_code} on '{path}': {error_bytes.decode('utf-8', errors='ignore')[:500]}")
+                    return Response(
+                        content=error_bytes,
+                        status_code=upstream_resp.status_code,
+                        media_type=upstream_resp.headers.get("content-type") or "application/json",
+                    )
+
+                async def body_generator():
+                    try:
+                        async for chunk in upstream_resp.aiter_bytes():
+                            if chunk:
+                                yield chunk
+                    except (httpx.TransportError, httpcore.TransportError) as exc:
+                        logger.warning(f"[Responses] Upstream stream interrupted: {exc}")
+                    finally:
+                        await upstream_resp.aclose()
+                        stream_client = getattr(upstream_resp, "_stream_client", None)
+                        if stream_client:
+                            await stream_client.aclose()
+
+                def on_responses_stream_complete(cached_toks: int, c_type: str, prompt_toks: Optional[int] = None):
+                    if req_id and stats_repo:
+                        if cached_toks > 0 or (prompt_toks and prompt_toks > 0):
+                            stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
+                        else:
+                            stats_repo.mark_request_completed(req_id)
+                    if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+                        pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
+                    session_last_activity[session_id] = time.time()
+
+                lock_delegated = True
+                stream_unlock = unlock_session
+
+                async def locked_responses_stream(inner_gen):
+                    try:
+                        async for chunk in inner_gen:
                             yield chunk
-                except (httpx.TransportError, httpcore.TransportError) as exc:
-                    logger.warning(f"[Responses] Upstream stream interrupted: {exc}")
-                finally:
-                    await upstream_resp.aclose()
-                    stream_client = getattr(upstream_resp, "_stream_client", None)
-                    if stream_client:
-                        await stream_client.aclose()
+                    finally:
+                        if stream_unlock:
+                            stream_unlock()
+                        if req_id and stats_repo:
+                            stats_repo.mark_request_completed(req_id)
 
-            def on_responses_stream_complete(cached_toks: int, c_type: str, prompt_toks: Optional[int] = None):
-                if req_id and stats_repo and (cached_toks > 0 or (prompt_toks and prompt_toks > 0)):
-                    stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
+                media_type = "text/event-stream"
+                return StreamingResponse(
+                    locked_responses_stream(
+                        SSEStreamHandler.passthrough_stream(
+                            body_generator(),
+                            on_complete=on_responses_stream_complete,
+                            protocol="openai",
+                            # Upstream natively supports Responses API; pass raw stream through
+                            convert_to_responses=False,
+                        )
+                    ),
+                    media_type=media_type,
+                    headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+                    status_code=upstream_resp.status_code,
+                )
+
+            resp = await upstream.forward_request(path, headers=headers, provider_name=provider_name, **fwd_kwargs)
+            if resp.status_code < 400:
+                cached_toks, c_type, prompt_toks = parse_cache_stats(resp.content, protocol="openai")
+                if req_id and stats_repo:
+                    if cached_toks > 0 or (prompt_toks and prompt_toks > 0):
+                        stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
+                    else:
+                        stats_repo.mark_request_completed(req_id)
                 if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
                     pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
                 session_last_activity[session_id] = time.time()
-
-            media_type = "text/event-stream"
-            return StreamingResponse(
-                SSEStreamHandler.passthrough_stream(
-                    body_generator(),
-                    on_complete=on_responses_stream_complete,
-                    protocol="openai",
-                    # Upstream natively supports Responses API; pass raw stream through
-                    convert_to_responses=False,
-                ),
-                media_type=media_type,
-                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-                status_code=upstream_resp.status_code,
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                media_type="application/json",
+                headers={"X-CtxGuard-Saved-Ratio": str(req_ctx.compression_ratio)},
             )
-
-        resp = await upstream.forward_request(path, headers=headers, provider_name=provider_name, **fwd_kwargs)
-        if resp.status_code < 400:
-            cached_toks, c_type, prompt_toks = parse_cache_stats(resp.content, protocol="openai")
-            if req_id and stats_repo and (cached_toks > 0 or (prompt_toks and prompt_toks > 0)):
-                stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
-            if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-                pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
-            session_last_activity[session_id] = time.time()
-        return Response(
-            content=resp.content,
-            status_code=resp.status_code,
-            media_type="application/json",
-            headers={"X-CtxGuard-Saved-Ratio": str(req_ctx.compression_ratio)},
-        )
+        finally:
+            if not lock_delegated and unlock_session:
+                unlock_session()
 
     @router.get("/backend-api/codex/models")
     @router.get("/backend-api/models")
@@ -1506,262 +1583,294 @@ def create_router(
         norm_req.idle_seconds = idle_seconds
         norm_req.provider = provider_name
 
-        # 1. Virtual tool local execution check (0 upstream tokens!)
-        local_tool_resp = virtual_tool_executor.check_and_execute(norm_req)
-        if local_tool_resp:
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            if stats_repo:
-                stats_repo.record_request(
-                    session_id=session_id,
-                    protocol="anthropic",
-                    model=norm_req.model,
-                    raw_tokens=0,
-                    optimized_tokens=0,
-                    latency_ms=duration_ms,
-                    applied_compressors=["virtual_tool_local_expand"],
-                    project_name=project_name,
-                    prompt_preview=prompt_preview,
-                )
-            return JSONResponse(
-                content=local_tool_resp.raw_response,
-                headers={
-                    "X-CtxGuard-Virtual-Tool": "true",
-                    "X-CtxGuard-Process-Time-Ms": f"{duration_ms:.2f}",
-                },
-            )
+        # Session Serialization Queue (Headroom #2085)
+        unlock_session = None
+        cg_cfg = getattr(config, "cache_guard", None)
+        if cg_cfg and getattr(cg_cfg, "session_serialization_enabled", True):
+            timeout = getattr(cg_cfg, "session_queue_timeout_seconds", 45.0)
+            unlock_session = await session_serializer.acquire(session_id, timeout=timeout)
 
-        # 1.2 Semantic Cache Lookup (0 upstream tokens, 100% savings, ~1ms latency)
-        # Snapshot pristine messages before any pipeline or graph injections
-        pristine_messages = [Message(role=m.role, content=m.content) for m in norm_req.messages]
-        user_query_text = ""
-        for m in reversed(norm_req.messages):
-            if m.role == "user":
-                user_query_text = m.get_text_content()
-                break
-
-        if semantic_cache and semantic_cache.config.enabled:
-            cached_hit = semantic_cache.get(
-                query=user_query_text,
-                messages=pristine_messages,
-                model=norm_req.model,
-                system=norm_req.system,
-            )
-            if cached_hit:
-                entry, sim, hit_type = cached_hit
+        lock_delegated = False
+        try:
+            # 1. Virtual tool local execution check (0 upstream tokens!)
+            local_tool_resp = virtual_tool_executor.check_and_execute(norm_req)
+            if local_tool_resp:
                 duration_ms = (time.perf_counter() - start_time) * 1000
-                record_savings_event(
-                    tokens_before=entry.raw_tokens or 150,
-                    tokens_after=0,
-                    model=norm_req.model,
-                    client=project_name,
-                    source="semantic_cache",
-                )
                 if stats_repo:
                     stats_repo.record_request(
                         session_id=session_id,
                         protocol="anthropic",
                         model=norm_req.model,
-                        raw_tokens=entry.raw_tokens or 150,
+                        raw_tokens=0,
                         optimized_tokens=0,
                         latency_ms=duration_ms,
-                        applied_compressors=[f"semantic_cache_{hit_type}_hit"],
+                        applied_compressors=["virtual_tool_local_expand"],
                         project_name=project_name,
                         prompt_preview=prompt_preview,
                     )
-                resp_headers = {
-                    "X-CtxGuard-Semantic-Cache": f"HIT-{hit_type.upper()}",
-                    "X-CtxGuard-Semantic-Similarity": f"{sim:.4f}",
-                    "X-CtxGuard-Process-Time-Ms": f"{duration_ms:.2f}",
-                    "Content-Type": "application/json",
-                }
-                return Response(
-                    content=entry.response_body,
-                    headers=resp_headers,
-                    media_type="application/json",
+                return JSONResponse(
+                    content=local_tool_resp.raw_response,
+                    headers={
+                        "X-CtxGuard-Virtual-Tool": "true",
+                        "X-CtxGuard-Process-Time-Ms": f"{duration_ms:.2f}",
+                    },
                 )
 
-        # 1.5 Personal Knowledge Graph Injection & Learning (Controlled by Config Switch)
-        if graph_engine and getattr(getattr(config, "piggyback_extraction", None), "enabled", True):
-            try:
-                temp_ctx = RequestContext(request=norm_req)
-                graph_engine.inject_graph_context(temp_ctx)
-            except Exception as ge_err:
-                pass
+            # 1.2 Semantic Cache Lookup (0 upstream tokens, 100% savings, ~1ms latency)
+            # Snapshot pristine messages before any pipeline or graph injections
+            pristine_messages = [Message(role=m.role, content=m.content) for m in norm_req.messages]
+            user_query_text = ""
+            for m in reversed(norm_req.messages):
+                if m.role == "user":
+                    user_query_text = m.get_text_content()
+                    break
 
-        # 2. Process through Compression Pipeline
-        req_ctx = await pipeline.process(norm_req)
+            if semantic_cache and semantic_cache.config.enabled:
+                cached_hit = semantic_cache.get(
+                    query=user_query_text,
+                    messages=pristine_messages,
+                    model=norm_req.model,
+                    system=norm_req.system,
+                )
+                if cached_hit:
+                    entry, sim, hit_type = cached_hit
+                    duration_ms = (time.perf_counter() - start_time) * 1000
+                    record_savings_event(
+                        tokens_before=entry.raw_tokens or 150,
+                        tokens_after=0,
+                        model=norm_req.model,
+                        client=project_name,
+                        source="semantic_cache",
+                    )
+                    if stats_repo:
+                        stats_repo.record_request(
+                            session_id=session_id,
+                            protocol="anthropic",
+                            model=norm_req.model,
+                            raw_tokens=entry.raw_tokens or 150,
+                            optimized_tokens=0,
+                            latency_ms=duration_ms,
+                            applied_compressors=[f"semantic_cache_{hit_type}_hit"],
+                            project_name=project_name,
+                            prompt_preview=prompt_preview,
+                        )
+                    resp_headers = {
+                        "X-CtxGuard-Semantic-Cache": f"HIT-{hit_type.upper()}",
+                        "X-CtxGuard-Semantic-Similarity": f"{sim:.4f}",
+                        "X-CtxGuard-Process-Time-Ms": f"{duration_ms:.2f}",
+                        "Content-Type": "application/json",
+                    }
+                    return Response(
+                        content=entry.response_body,
+                        headers=resp_headers,
+                        media_type="application/json",
+                    )
 
-        # 3. Build upstream payload
-        upstream_payload = anthropic_adapter.build_upstream_payload(req_ctx.request)
-        client_headers = dict(request.headers)
+            # 1.5 Personal Knowledge Graph Injection & Learning (Controlled by Config Switch)
+            if graph_engine and getattr(getattr(config, "piggyback_extraction", None), "enabled", True):
+                try:
+                    temp_ctx = RequestContext(request=norm_req)
+                    graph_engine.inject_graph_context(temp_ctx)
+                except Exception as ge_err:
+                    pass
 
-        provider = upstream.resolve_provider(provider_name)
-        headers = upstream.build_headers("anthropic", provider, client_headers)
+            # 2. Process through Compression Pipeline
+            req_ctx = await pipeline.process(norm_req)
 
-        has_compressed_history = False
-        if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-            has_compressed_history = pipeline.cache_guard.has_compressed_history(session_id)
+            # 3. Build upstream payload
+            upstream_payload = anthropic_adapter.build_upstream_payload(req_ctx.request)
+            client_headers = dict(request.headers)
 
-        can_passthrough_raw = (
-            not req_ctx.applied_compressors
-            and not has_compressed_history
-            and (req_ctx.original_tokens == req_ctx.optimized_tokens)
-            and not req_ctx.metadata.get("graph_injected")
-            and (raw_body.get("model") == upstream_payload.get("model"))
-        )
-        raw_bytes_to_send = body_bytes if can_passthrough_raw else None
-        fwd_kwargs = {"raw_body": raw_bytes_to_send} if raw_bytes_to_send is not None else {}
+            provider = upstream.resolve_provider(provider_name)
+            headers = upstream.build_headers("anthropic", provider, client_headers)
 
-        if norm_req.stream:
-            stream_gen = upstream.forward_stream(
-                "v1/messages", upstream_payload, headers, provider_name, **fwd_kwargs
+            has_compressed_history = False
+            if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+                has_compressed_history = pipeline.cache_guard.has_compressed_history(session_id)
+
+            can_passthrough_raw = (
+                not req_ctx.applied_compressors
+                and not has_compressed_history
+                and (req_ctx.original_tokens == req_ctx.optimized_tokens)
+                and not req_ctx.metadata.get("graph_injected")
+                and (raw_body.get("model") == upstream_payload.get("model"))
             )
-            if streaming_vtool_handler:
-                stream_gen = streaming_vtool_handler.wrap_stream(
-                    stream_gen=stream_gen,
-                    upstream_payload=upstream_payload,
-                    headers=headers,
-                    provider_name=provider_name,
-                    upstream_client=upstream,
-                    protocol="anthropic",
-                    path="v1/messages",
-                    session_id=session_id,
-                    fwd_kwargs=fwd_kwargs,
-                )
-            duration_ms = (time.perf_counter() - start_time) * 1000
-            if req_ctx.original_tokens > req_ctx.optimized_tokens:
-                record_savings_event(
-                    tokens_before=req_ctx.original_tokens,
-                    tokens_after=req_ctx.optimized_tokens,
-                    model=norm_req.model,
-                    client=project_name,
-                    source="proxy_pipeline",
-                )
-            req_id = None
-            if stats_repo:
-                req_id = stats_repo.record_request(
-                    session_id=session_id,
-                    protocol="anthropic",
-                    model=norm_req.model,
-                    raw_tokens=req_ctx.original_tokens,
-                    optimized_tokens=req_ctx.optimized_tokens,
-                    latency_ms=duration_ms,
-                    applied_compressors=req_ctx.applied_compressors,
-                    project_name=project_name,
-                    prompt_preview=prompt_preview,
-                )
+            raw_bytes_to_send = body_bytes if can_passthrough_raw else None
+            fwd_kwargs = {"raw_body": raw_bytes_to_send} if raw_bytes_to_send is not None else {}
 
-            def on_anthropic_stream_complete(cached_toks: int, c_type: str, prompt_toks: Optional[int] = None):
-                if req_id and stats_repo and (cached_toks > 0 or (prompt_toks and prompt_toks > 0)):
-                    stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
+            if norm_req.stream:
+                stream_gen = upstream.forward_stream(
+                    "v1/messages", upstream_payload, headers, provider_name, **fwd_kwargs
+                )
+                if streaming_vtool_handler:
+                    stream_gen = streaming_vtool_handler.wrap_stream(
+                        stream_gen=stream_gen,
+                        upstream_payload=upstream_payload,
+                        headers=headers,
+                        provider_name=provider_name,
+                        upstream_client=upstream,
+                        protocol="anthropic",
+                        path="v1/messages",
+                        session_id=session_id,
+                        fwd_kwargs=fwd_kwargs,
+                    )
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                if req_ctx.original_tokens > req_ctx.optimized_tokens:
+                    record_savings_event(
+                        tokens_before=req_ctx.original_tokens,
+                        tokens_after=req_ctx.optimized_tokens,
+                        model=norm_req.model,
+                        client=project_name,
+                        source="proxy_pipeline",
+                    )
+                req_id = None
+                if stats_repo:
+                    req_id = stats_repo.record_request(
+                        session_id=session_id,
+                        protocol="anthropic",
+                        model=norm_req.model,
+                        raw_tokens=req_ctx.original_tokens,
+                        optimized_tokens=req_ctx.optimized_tokens,
+                        latency_ms=duration_ms,
+                        applied_compressors=req_ctx.applied_compressors,
+                        project_name=project_name,
+                        prompt_preview=prompt_preview,
+                        status="streaming",
+                    )
+
+                def on_anthropic_stream_complete(cached_toks: int, c_type: str, prompt_toks: Optional[int] = None):
+                    if req_id and stats_repo:
+                        if cached_toks > 0 or (prompt_toks and prompt_toks > 0):
+                            stats_repo.update_cache_stats(req_id, cached_toks, c_type, prompt_tokens=prompt_toks)
+                        else:
+                            stats_repo.mark_request_completed(req_id)
+                    if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
+                        pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
+                    session_last_activity[session_id] = time.time()
+
+                lock_delegated = True
+                stream_unlock = unlock_session
+
+                async def locked_anthropic_stream(inner_gen):
+                    try:
+                        async for chunk in inner_gen:
+                            yield chunk
+                    finally:
+                        if stream_unlock:
+                            stream_unlock()
+                        if req_id and stats_repo:
+                            stats_repo.mark_request_completed(req_id)
+
+                return StreamingResponse(
+                    locked_anthropic_stream(
+                        SSEStreamHandler.passthrough_stream(stream_gen, on_complete=on_anthropic_stream_complete, protocol="anthropic")
+                    ),
+                    media_type="text/event-stream",
+                    headers={
+                        "Cache-Control": "no-cache",
+                        "Connection": "keep-alive",
+                        "X-CtxGuard-Saved-Ratio": str(req_ctx.compression_ratio),
+                    },
+                )
+            else:
+                resp = await upstream.forward_request(
+                    "v1/messages", upstream_payload, headers, provider_name, **fwd_kwargs
+                )
+                duration_ms = (time.perf_counter() - start_time) * 1000
+
+                # Virtual Tool Interception (CtxGuard Engine Phase 5/6: 100% Zero-Crash CCR Loop)
+                if resp.status_code == 200 and vtool_handler:
+                    try:
+                        resp_json = orjson.loads(resp.content)
+                        if vtool_handler.has_virtual_tool_calls(resp_json, protocol="anthropic"):
+                            final_bytes, extra_rounds, final_status = await vtool_handler.handle_non_streaming(
+                                initial_response_bytes=resp.content,
+                                upstream_payload=upstream_payload,
+                                headers=headers,
+                                provider_name=provider_name,
+                                upstream_client=upstream,
+                                protocol="anthropic",
+                                path="v1/messages",
+                                session_id=session_id,
+                                fwd_kwargs=fwd_kwargs,
+                            )
+                            if extra_rounds > 0:
+                                duration_ms = (time.perf_counter() - start_time) * 1000
+                                req_ctx.applied_compressors.append("virtual_tool_recursive_expand")
+                                resp = httpx.Response(
+                                    status_code=final_status,
+                                    content=final_bytes,
+                                    headers=resp.headers,
+                                )
+                    except Exception as v_err:
+                        logger.warning(f"[VirtualToolHandler] Anthropic response interception failed: {v_err}")
+
+                if req_ctx.original_tokens > req_ctx.optimized_tokens:
+                    record_savings_event(
+                        tokens_before=req_ctx.original_tokens,
+                        tokens_after=req_ctx.optimized_tokens,
+                        model=norm_req.model,
+                        client=project_name,
+                        source="proxy_pipeline",
+                    )
+                cached_toks, c_type, prompt_toks = parse_cache_stats(resp.content, protocol="anthropic")
+                effective_opt = max(prompt_toks, cached_toks) if prompt_toks else req_ctx.optimized_tokens
+                effective_raw = max(req_ctx.original_tokens, effective_opt)
+                if stats_repo:
+                    stats_repo.record_request(
+                        session_id=session_id,
+                        protocol="anthropic",
+                        model=norm_req.model,
+                        raw_tokens=effective_raw,
+                        optimized_tokens=effective_opt,
+                        latency_ms=duration_ms,
+                        applied_compressors=req_ctx.applied_compressors,
+                        project_name=project_name,
+                        prompt_preview=prompt_preview,
+                        cached_tokens=cached_toks,
+                        cache_type=c_type,
+                        status="completed",
+                    )
                 if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
                     pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
                 session_last_activity[session_id] = time.time()
 
-            return StreamingResponse(
-                SSEStreamHandler.passthrough_stream(stream_gen, on_complete=on_anthropic_stream_complete, protocol="anthropic"),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-CtxGuard-Saved-Ratio": str(req_ctx.compression_ratio),
-                },
-            )
-        else:
-            resp = await upstream.forward_request(
-                "v1/messages", upstream_payload, headers, provider_name, **fwd_kwargs
-            )
-            duration_ms = (time.perf_counter() - start_time) * 1000
+                response_bytes_to_return = resp.content
+                if resp.status_code == 200 and graph_engine and graph_engine.piggyback_enabled:
+                    try:
+                        resp_json = orjson.loads(resp.content)
+                        content_blocks = resp_json.get("content")
+                        if isinstance(content_blocks, list):
+                            for block in content_blocks:
+                                if isinstance(block, dict) and block.get("type") == "text":
+                                    orig_text = block.get("text", "")
+                                    if "<memory>" in orig_text.lower():
+                                        clean_text, extracted_memories = graph_engine.parse_and_strip_memory(orig_text)
+                                        block["text"] = clean_text
+                                        response_bytes_to_return = orjson.dumps(resp_json)
+                                        if extracted_memories:
+                                            graph_engine.apply_extracted_memories(extracted_memories)
+                    except Exception as pb_err:
+                        pass
 
-            # Virtual Tool Interception (Headroom Phase 5/6: 100% Zero-Crash CCR Loop)
-            if resp.status_code == 200 and vtool_handler:
-                try:
-                    resp_json = orjson.loads(resp.content)
-                    if vtool_handler.has_virtual_tool_calls(resp_json, protocol="anthropic"):
-                        final_bytes, extra_rounds, final_status = await vtool_handler.handle_non_streaming(
-                            initial_response_bytes=resp.content,
-                            upstream_payload=upstream_payload,
-                            headers=headers,
-                            provider_name=provider_name,
-                            upstream_client=upstream,
-                            protocol="anthropic",
-                            path="v1/messages",
-                            session_id=session_id,
-                            fwd_kwargs=fwd_kwargs,
-                        )
-                        if extra_rounds > 0:
-                            duration_ms = (time.perf_counter() - start_time) * 1000
-                            req_ctx.applied_compressors.append("virtual_tool_recursive_expand")
-                            resp = httpx.Response(
-                                status_code=final_status,
-                                content=final_bytes,
-                                headers=resp.headers,
-                            )
-                except Exception as v_err:
-                    logger.warning(f"[VirtualToolHandler] Anthropic response interception failed: {v_err}")
+                if resp.status_code == 200 and semantic_cache and semantic_cache.config.enabled:
+                    semantic_cache.put(
+                        query=user_query_text,
+                        messages=pristine_messages,
+                        model=norm_req.model,
+                        response_body=response_bytes_to_return,
+                        raw_tokens=req_ctx.original_tokens,
+                        system=norm_req.system,
+                    )
 
-            if req_ctx.original_tokens > req_ctx.optimized_tokens:
-                record_savings_event(
-                    tokens_before=req_ctx.original_tokens,
-                    tokens_after=req_ctx.optimized_tokens,
-                    model=norm_req.model,
-                    client=project_name,
-                    source="proxy_pipeline",
+                return Response(
+                    content=response_bytes_to_return,
+                    status_code=resp.status_code,
+                    media_type="application/json",
+                    headers={"X-CtxGuard-Saved-Ratio": str(req_ctx.compression_ratio)},
                 )
-            cached_toks, c_type, prompt_toks = parse_cache_stats(resp.content, protocol="anthropic")
-            effective_opt = max(prompt_toks, cached_toks) if prompt_toks else req_ctx.optimized_tokens
-            effective_raw = max(req_ctx.original_tokens, effective_opt)
-            if stats_repo:
-                stats_repo.record_request(
-                    session_id=session_id,
-                    protocol="anthropic",
-                    model=norm_req.model,
-                    raw_tokens=effective_raw,
-                    optimized_tokens=effective_opt,
-                    latency_ms=duration_ms,
-                    applied_compressors=req_ctx.applied_compressors,
-                    project_name=project_name,
-                    prompt_preview=prompt_preview,
-                    cached_tokens=cached_toks,
-                    cache_type=c_type,
-                )
-            if hasattr(pipeline, "cache_guard") and pipeline.cache_guard:
-                pipeline.cache_guard.record_forwarded_turn(session_id, req_ctx.request.messages, cached_tokens=cached_toks)
-            session_last_activity[session_id] = time.time()
-
-            response_bytes_to_return = resp.content
-            if resp.status_code == 200 and graph_engine and graph_engine.piggyback_enabled:
-                try:
-                    resp_json = orjson.loads(resp.content)
-                    content_blocks = resp_json.get("content")
-                    if isinstance(content_blocks, list):
-                        for block in content_blocks:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                orig_text = block.get("text", "")
-                                if "<memory>" in orig_text.lower():
-                                    clean_text, extracted_memories = graph_engine.parse_and_strip_memory(orig_text)
-                                    block["text"] = clean_text
-                                    response_bytes_to_return = orjson.dumps(resp_json)
-                                    if extracted_memories:
-                                        graph_engine.apply_extracted_memories(extracted_memories)
-                except Exception as pb_err:
-                    pass
-
-            if resp.status_code == 200 and semantic_cache and semantic_cache.config.enabled:
-                semantic_cache.put(
-                    query=user_query_text,
-                    messages=pristine_messages,
-                    model=norm_req.model,
-                    response_body=response_bytes_to_return,
-                    raw_tokens=req_ctx.original_tokens,
-                    system=norm_req.system,
-                )
-
-            return Response(
-                content=response_bytes_to_return,
-                status_code=resp.status_code,
-                media_type="application/json",
-                headers={"X-CtxGuard-Saved-Ratio": str(req_ctx.compression_ratio)},
-            )
+        finally:
+            if not lock_delegated and unlock_session:
+                unlock_session()
 
     return router

@@ -131,13 +131,17 @@ class CompressionPipeline:
         request: NormalizedRequest,
         target_messages: Optional[List[Message]] = None,
     ) -> None:
+        if not self.proactive_expansion_enabled:
+            return
+        if not self.proactive_expansion_enabled:
+            return
         """Analyze query relevance against compressed contexts and proactively expand full content.
 
         CRITICAL PROMPT CACHE INVARIANT:
-        Never modify any historical messages that belong to `frozen_prefix`!
-        If `target_messages` (compressible_suffix) is provided, expansion MUST ONLY be injected
+        Never modify any historical messages that belong to !
+        If  (compressible_suffix) is provided, expansion MUST ONLY be injected
         into the live zone (e.g. the latest user message or the last active tool/turn in suffix).
-        Modifying an already-cached message in `frozen_prefix` will invalidate upstream KV Cache.
+        Modifying an already-cached message in  will invalidate upstream KV Cache.
         """
         if not self.proactive_expansion_enabled or not self.context_tracker or not self.fingerprint_repo or not request.messages:
             return
@@ -145,25 +149,17 @@ class CompressionPipeline:
         session_id = request.session_id or "default"
         workspace_key = request.metadata.get("workspace_key") or request.metadata.get("project_name") or ""
 
-        # Cache Mode Protection:
-        # If skip_in_cache_mode is enabled and this session has an established compressed history,
-        # skip proactive expansion append to preserve next-turn prefix stability.
         pe_cfg = getattr(self.config, "proactive_expansion", None)
         if pe_cfg and getattr(pe_cfg, "skip_in_cache_mode", False) and self.cache_guard.has_compressed_history(session_id):
             return
 
-        # Restrict mutation target strictly to the live/suffix zone if provided
         active_messages = target_messages if target_messages is not None else request.messages
         if not active_messages:
             return
 
-        # Extract latest user message or error text from the live zone
         active_user_messages = [m for m in active_messages if m.role == "user"]
         target_msg = active_user_messages[-1] if active_user_messages else None
 
-        # If there is no user message in the live zone (e.g. intermediate toolResult turn),
-        # fallback to targeting the last message in the live zone (e.g. tool message)
-        # to guarantee we NEVER mutate messages in frozen_prefix.
         if target_msg is None:
             target_msg = active_messages[-1]
 
@@ -232,7 +228,7 @@ class CompressionPipeline:
 
         # 4. Partition messages via CacheGuard with dynamic token bound & cold recompact
         frozen_prefix, compressible_suffix, was_cold = self.cache_guard.partition_messages(
-            request, session_id=session_id, idle_seconds=idle_seconds
+            request, session_id=session_id, idle_seconds=idle_seconds, provider=provider
         )
 
         if was_cold and "cold_recompact" not in context.applied_compressors:

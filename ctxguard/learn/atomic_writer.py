@@ -38,7 +38,7 @@ class AtomicRuleWriter:
         start_tag = f"<!-- {marker}:START -->"
         end_tag = f"<!-- {marker}:END -->"
         
-        # Also support Headroom lowercase format matching
+        # Also support CtxGuard Engine lowercase format matching
         alt_start = f"<!-- {marker.lower().replace('_', ':')}:start -->"
         alt_end = f"<!-- {marker.lower().replace('_', ':')}:end -->"
 

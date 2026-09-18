@@ -1,4 +1,4 @@
-"""Rule Pruning and Eviction Engine aligning with Headroom design."""
+"""Rule Pruning and Eviction Engine aligning with CtxGuard Engine design."""
 
 from __future__ import annotations
 from typing import List, Dict, Set

@@ -17,7 +17,7 @@ class DigestEpisode:
 
 class DigestBuilder:
     """Condenses raw conversation events into high-signal episodes within token budget.
-    Inspired by Headroom's 80K token budget with exponential decay fallback.
+    Inspired by CtxGuard Engine's 80K token budget with exponential decay fallback.
     """
 
     def __init__(self, token_budget: int = 80000):

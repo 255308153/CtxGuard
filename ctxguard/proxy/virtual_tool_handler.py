@@ -1,6 +1,6 @@
 """Virtual tool response interception and recursive upstream continuation engine.
 
-Aligned with Headroom CCRResponseHandler (Phase 5 / Phase 6):
+Aligned with CtxGuard Engine CCRResponseHandler (Phase 5 / Phase 6):
 Intercepts "ctx_expand" virtual tool calls emitted by upstream LLMs,
 retrieves uncompressed content locally via FingerprintRepository (0 API tokens, 0.1ms),
 and recursively sends continuation requests to the upstream provider until a final response
@@ -250,7 +250,7 @@ class VirtualToolResponseHandler:
 
             # If the model called ctx_expand alongside client-defined external tools,
             # we cannot resolve both (the client must execute its own tools).
-            # Follow Headroom RESIDUAL_CCR_SKIPPED_MIXED: pass through to client.
+            # Follow CtxGuard Engine RESIDUAL_CCR_SKIPPED_MIXED: pass through to client.
             if other_calls:
                 logger.warning(
                     f"[VirtualToolHandler] Model called {len(other_calls)} client tool(s) "

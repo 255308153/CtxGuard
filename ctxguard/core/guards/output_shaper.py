@@ -1,5 +1,5 @@
 """Byte-stable Output Verbosity & Shaping Policy.
-Aligned with Headroom pure output steering specifications.
+Aligned with CtxGuard Engine pure output steering specifications.
 """
 
 from __future__ import annotations

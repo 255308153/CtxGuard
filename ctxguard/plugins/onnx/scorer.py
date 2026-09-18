@@ -1,4 +1,4 @@
-"""Semantic token classification and span pruner 100% aligned with Headroom Kompress architecture."""
+"""Semantic token classification and span pruner 100% aligned with CtxGuard Engine Kompress architecture."""
 
 import re
 import numpy as np
@@ -8,7 +8,7 @@ from ctxguard.core.context import RequestContext, Message
 from ctxguard.plugins.onnx.tokenizer import FastTokenizer
 from ctxguard.plugins.onnx.model_loader import ONNXModelLoader
 
-# Step 1: Headroom Must-Keep Pinning Regex Pattern
+# Step 1: CtxGuard Engine Must-Keep Pinning Regex Pattern
 # Numbers, hex addresses, file paths, extensions, flags, CamelCase classes,
 # and critical negation/directive words that must NEVER be model-dropped.
 MUST_KEEP_RE = re.compile(
@@ -28,7 +28,7 @@ MUST_KEEP_RE = re.compile(
 
 
 class SemanticPruner(BaseCompressor):
-    """Headroom-aligned 3-Step Semantic Text Pruner:
+    """CtxGuard Engine-aligned 3-Step Semantic Text Pruner:
     1. Regex Must-Keep Pinning
     2. Dual-Head Neural Model Inference (Token Head + Span CNN)
     3. Span-Aware Reconstruction
@@ -49,7 +49,7 @@ class SemanticPruner(BaseCompressor):
         return "semantic_pruner"
 
     def is_applicable(self, context: RequestContext) -> bool:
-        """Headroom-aligned gating: Lossless-first, then neural fallback."""
+        """CtxGuard Engine-aligned gating: Lossless-first, then neural fallback."""
         if context.state.get("has_active_cache", False):
             mode = context.state.get("compression_mode", "lossless")
             if mode != "deep":
@@ -64,7 +64,7 @@ class SemanticPruner(BaseCompressor):
         return level >= 2 or mode == "deep"
 
     def process(self, context: RequestContext, target_messages: list[Message]) -> None:
-        """Process target messages in place using 3-step Headroom neural pipeline."""
+        """Process target messages in place using 3-step CtxGuard Engine neural pipeline."""
         ratio = context.state.get("target_prune_ratio", self.target_prune_ratio)
         for msg in target_messages:
             if msg.role == "system":
@@ -78,7 +78,7 @@ class SemanticPruner(BaseCompressor):
                         context.applied_compressors.append(self.name)
 
     def prune_text(self, text: str, keep_ratio: float = 0.85) -> str:
-        """Headroom 3-Step Pipeline: Pinning -> Neural -> Reconstruction."""
+        """CtxGuard Engine 3-Step Pipeline: Pinning -> Neural -> Reconstruction."""
         if not text or keep_ratio >= 1.0:
             return text
 

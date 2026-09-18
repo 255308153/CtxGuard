@@ -1,4 +1,4 @@
-"""Unified Rule Merger implementing Headroom's Round-trip Marker Baseline Merging.
+"""Unified Rule Merger implementing CtxGuard Engine's Round-trip Marker Baseline Merging.
 Ensures previously learned rules are carried forward instead of silently erased.
 """
 

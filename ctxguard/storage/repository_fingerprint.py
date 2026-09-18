@@ -8,7 +8,7 @@ from ctxguard.storage.db import DatabaseManager
 class FingerprintRepository:
     """Manages high-performance in-memory LRU and persistent SHA-256 fingerprint storage."""
 
-    def __init__(self, db_manager: DatabaseManager, context_tracker: Optional[Any] = None, max_records: int = 10000):
+    def __init__(self, db_manager: DatabaseManager, context_tracker: Optional[Any] = None, max_records: int = 1000):
         self.db = db_manager
         self.context_tracker = context_tracker
         self.max_records = max_records
@@ -26,7 +26,7 @@ class FingerprintRepository:
         hash_id: str,
         session_id: str,
         content: str,
-        max_records: int = 10000,
+        max_records: int = 1000,
         tool_name: Optional[str] = None,
         workspace_key: str = "",
     ) -> None:
@@ -73,9 +73,9 @@ class FingerprintRepository:
                 (clean_id, session_id, content, len(content)),
             )
 
-            # Lazy batch eviction: only execute cleanup every 250 writes (or when max_records < 100 in tests)
+            # Lazy batch eviction: execute cleanup every 50 writes (or when max_records < 100 in tests)
             self._write_counter += 1
-            if max_records < 100 or self._write_counter % 250 == 0:
+            if max_records < 100 or self._write_counter % 50 == 0:
                 conn.execute(
                     """
                     DELETE FROM fingerprints
@@ -114,61 +114,37 @@ class FingerprintRepository:
                         pass
                 return self._memory_cache[clean_hash]
 
-        # In-memory prefix lookup for short hashes
-        if len(clean_hash) < 64:
-            for k, v in self._memory_cache.items():
-                if k.startswith(clean_hash):
-                    if session_id is None or self._memory_sessions.get(k) == session_id:
-                        self._memory_cache.move_to_end(k)
-                        if k in self._memory_sessions:
-                            self._memory_sessions.move_to_end(k)
-                        if self.max_records < 100:
-                            try:
-                                with self.db.get_connection() as conn:
-                                    conn.execute(
-                                        "UPDATE fingerprints SET last_accessed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), hit_count = hit_count + 1 WHERE hash_id = ?",
-                                        (k,),
-                                    )
-                                    conn.commit()
-                            except Exception:
-                                pass
-                        return v
+        # In-memory prefix / bidirectional lookup for short or full hashes
+        for k, v in self._memory_cache.items():
+            if k.startswith(clean_hash) or clean_hash.startswith(k):
+                if session_id is None or self._memory_sessions.get(k) == session_id:
+                    self._memory_cache.move_to_end(k)
+                    if k in self._memory_sessions:
+                        self._memory_sessions.move_to_end(k)
+                    if self.max_records < 100:
+                        try:
+                            with self.db.get_connection() as conn:
+                                conn.execute(
+                                    "UPDATE fingerprints SET last_accessed_at = strftime('%Y-%m-%d %H:%M:%f', 'now'), hit_count = hit_count + 1 WHERE hash_id = ?",
+                                    (k,),
+                                )
+                                conn.commit()
+                        except Exception:
+                            pass
+                    return v
 
         # 2. Fallback to SQLite query and populate in-memory LRU
         with self.db.get_connection() as conn:
-            # Exact match
+            # Exact match or prefix match in either direction
             if session_id is not None:
                 cursor = conn.execute(
-                    "SELECT content, hash_id, session_id FROM fingerprints WHERE hash_id = ? AND session_id = ? LIMIT 1",
-                    (clean_hash, session_id),
+                    "SELECT content, hash_id, session_id FROM fingerprints WHERE (hash_id = ? OR hash_id LIKE ? OR ? LIKE (hash_id || '%')) AND session_id = ? LIMIT 1",
+                    (clean_hash, f"{clean_hash}%", clean_hash, session_id),
                 )
             else:
                 cursor = conn.execute(
-                    "SELECT content, hash_id, session_id FROM fingerprints WHERE hash_id = ? LIMIT 1",
-                    (clean_hash,),
-                )
-            row = cursor.fetchone()
-            if row:
-                content = row["content"]
-                matched_id = row["hash_id"]
-                row_session = row["session_id"]
-                self._memory_cache[matched_id] = content
-                self._memory_sessions[matched_id] = row_session
-                if len(self._memory_cache) > self.max_records:
-                    self._memory_cache.popitem(last=False)
-                    self._memory_sessions.popitem(last=False)
-                return content
-
-            # Prefix match for short fingerprints
-            if session_id is not None:
-                cursor = conn.execute(
-                    "SELECT content, hash_id, session_id FROM fingerprints WHERE hash_id LIKE ? AND session_id = ? LIMIT 1",
-                    (f"{clean_hash}%", session_id),
-                )
-            else:
-                cursor = conn.execute(
-                    "SELECT content, hash_id, session_id FROM fingerprints WHERE hash_id LIKE ? LIMIT 1",
-                    (f"{clean_hash}%",),
+                    "SELECT content, hash_id, session_id FROM fingerprints WHERE (hash_id = ? OR hash_id LIKE ? OR ? LIKE (hash_id || '%')) LIMIT 1",
+                    (clean_hash, f"{clean_hash}%", clean_hash),
                 )
             row = cursor.fetchone()
             if row:
@@ -190,18 +166,60 @@ class FingerprintRepository:
         if session_id is None:
             if clean_hash in self._memory_cache:
                 return True
+            for k in self._memory_cache:
+                if k.startswith(clean_hash) or clean_hash.startswith(k):
+                    return True
             with self.db.get_connection() as conn:
                 cursor = conn.execute(
-                    "SELECT 1 FROM fingerprints WHERE hash_id = ? OR hash_id LIKE ? LIMIT 1",
-                    (clean_hash, f"{clean_hash}%"),
+                    "SELECT 1 FROM fingerprints WHERE hash_id = ? OR hash_id LIKE ? OR ? LIKE (hash_id || '%') LIMIT 1",
+                    (clean_hash, f"{clean_hash}%", clean_hash),
                 )
                 return cursor.fetchone() is not None
         else:
             if clean_hash in self._memory_cache and self._memory_sessions.get(clean_hash) == session_id:
                 return True
+            for k in self._memory_cache:
+                if (k.startswith(clean_hash) or clean_hash.startswith(k)) and self._memory_sessions.get(k) == session_id:
+                    return True
             with self.db.get_connection() as conn:
                 cursor = conn.execute(
-                    "SELECT 1 FROM fingerprints WHERE (hash_id = ? OR hash_id LIKE ?) AND session_id = ? LIMIT 1",
-                    (clean_hash, f"{clean_hash}%", session_id),
+                    "SELECT 1 FROM fingerprints WHERE (hash_id = ? OR hash_id LIKE ? OR ? LIKE (hash_id || '%')) AND session_id = ? LIMIT 1",
+                    (clean_hash, f"{clean_hash}%", clean_hash, session_id),
                 )
                 return cursor.fetchone() is not None
+
+    def purge_and_vacuum(self, keep_limit: int = 1000) -> int:
+        """Purge stale and redundant fingerprints, keeping top keep_limit records, and run VACUUM."""
+        deleted_count = 0
+        with self.db.get_connection() as conn:
+            # 1. Delete redundant 12-char twin duplicates if a 16+ char version already exists
+            conn.execute(
+                """
+                DELETE FROM fingerprints
+                WHERE length(hash_id) = 12
+                  AND EXISTS (
+                      SELECT 1 FROM fingerprints f2
+                      WHERE length(f2.hash_id) > 12
+                        AND f2.hash_id LIKE (fingerprints.hash_id || '%')
+                  )
+                """
+            )
+            # 2. Delete older records exceeding keep_limit
+            cur = conn.execute(
+                """
+                DELETE FROM fingerprints
+                WHERE hash_id NOT IN (
+                    SELECT hash_id FROM fingerprints
+                    ORDER BY last_accessed_at DESC, hit_count DESC
+                    LIMIT ?
+                )
+                """,
+                (keep_limit,),
+            )
+            deleted_count = cur.rowcount
+            conn.commit()
+            conn.execute("VACUUM")
+
+        self._memory_cache.clear()
+        self._memory_sessions.clear()
+        return deleted_count

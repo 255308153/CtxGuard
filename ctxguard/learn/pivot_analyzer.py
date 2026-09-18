@@ -21,7 +21,7 @@ class PivotIncident:
 
 class PivotAnalyzer:
     """Discovers critical pivot points where the Agent transitioned from failure to success.
-    Implements Headroom's core Success Correlation philosophy:
+    Implements CtxGuard Engine's core Success Correlation philosophy:
     'Capture the critical turning point rather than merely counting failure numbers.'
     """
 

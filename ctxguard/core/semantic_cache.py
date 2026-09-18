@@ -1,6 +1,6 @@
 """Semantic cache engine for query-level response reuse.
 
-Inspired by Headroom's semantic cache and the lessons in 06-语义缓存:
+Inspired by CtxGuard Engine's semantic cache and the lessons in 06-语义缓存:
 1. Slashes entire LLM invocations (100% token savings, single-digit ms latency).
 2. Dual-track lookup: Exact full-context SHA-256 hash first, followed by Cosine Semantic similarity.
 3. Conservative threshold (0.95) to prevent catastrophic false-positive answers.

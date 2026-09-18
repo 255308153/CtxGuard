@@ -49,6 +49,7 @@ class DatabaseManager:
                 saved_ratio REAL NOT NULL,
                 latency_ms REAL NOT NULL,
                 applied_compressors TEXT DEFAULT '[]',
+                status TEXT DEFAULT 'completed',
                 FOREIGN KEY(session_id) REFERENCES sessions(session_id)
             );
             """)
@@ -97,6 +98,10 @@ class DatabaseManager:
                 pass
             try:
                 conn.execute("ALTER TABLE requests ADD COLUMN cache_type TEXT DEFAULT 'none'")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE requests ADD COLUMN status TEXT DEFAULT 'completed'")
             except sqlite3.OperationalError:
                 pass
 

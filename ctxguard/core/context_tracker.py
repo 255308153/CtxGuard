@@ -1,6 +1,6 @@
 """Multi-turn context tracking and proactive recall for CtxGuard.
 
-Tamed ContextTracker implementation aligned with Headroom CCR architecture:
+Tamed ContextTracker implementation aligned with CtxGuard Engine CCR architecture:
 1. Ingress Gatekeeper: Discard Claude Code /compact and continuation summaries.
 2. Scope Gatekeeper: Fail-closed workspace and session scoping to prevent cross-project leaks.
 3. Lifecycle & LRU: Strict 300s (5-min) TTL half-life decay with LRU eviction.
@@ -22,14 +22,14 @@ logger = logging.getLogger(__name__)
 # Content signatures that should never be proactively expanded back into user prompt
 BLOCKED_CONTENT_SIGNATURES: List[str] = [
     "<!-- CTXGUARD_AUTO_RULES",
-    "<!-- headroom:learn",
+    "<!-- ctxguard:learn",
     "Do not repeatedly execute incremental paging queries",
     "Discovered Pivots:",
     "[DRY RUN PREVIEW]",
     "Discovered and synthesized",
     "Relevant context automatically restored by CtxGuard",
     "<proactive_context_expansion",
-    "<headroom_proactive_expansion",
+    "<ctxguard_proactive_expansion",
 ]
 
 
@@ -37,7 +37,7 @@ def looks_like_compact_or_continuation_summary(*texts: Optional[str]) -> bool:
     """Return true for Claude Code /compact, continuation summaries, or auto-rule dumps.
 
     Tracking these for proactive expansion leads to recursive prompt bloat and context poisoning.
-    Aligned with Headroom's looks_like_claude_code_compact_summary gatekeeper.
+    Aligned with CtxGuard Engine's looks_like_claude_code_compact_summary gatekeeper.
     """
     combined = " ".join(t.strip() for t in texts if t and t.strip())
     if not combined:
@@ -89,10 +89,10 @@ class ExpansionRecommendation:
 
 
 class ContextTracker:
-    # Comprehensive stop-word vocabulary combining Headroom's 78 natural language stop words
+    # Comprehensive stop-word vocabulary combining CtxGuard Engine's 78 natural language stop words
     # and CtxGuard's platform/agent vocabulary to prevent false positive triggers
     STOP_WORDS: Set[str] = {
-        # Natural language grammatical words (aligned with Headroom 78 stop-words)
+        # Natural language grammatical words (aligned with CtxGuard Engine 78 stop-words)
         "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
         "have", "has", "had", "do", "does", "did", "will", "would", "could",
         "should", "may", "might", "must", "shall", "can", "need", "dare",
@@ -142,7 +142,7 @@ class ContextTracker:
     ) -> None:
         """当任何压缩器将内容折叠存入指纹库时调用。
         
-        对齐 Headroom:
+        对齐 CtxGuard Engine:
         1. 摘要拦截 (looks_like_compact_or_continuation_summary)
         2. LRU 容量控制 (超额剔除最旧指纹)
         3. 样本截断 (:1000)
@@ -298,7 +298,7 @@ class ContextTracker:
             content = str(exp.get("content", ""))
             # Tag boundary escaping to prevent prompt escaping/injection
             content = content.replace("</proactive_context_expansion>", "<\\/proactive_context_expansion>")
-            content = content.replace("</headroom_proactive_expansion>", "<\\/headroom_proactive_expansion>")
+            content = content.replace("</ctxguard_proactive_expansion>", "<\\/ctxguard_proactive_expansion>")
 
             # Apply strict bounding cap to prevent prompt flooding
             if len(content) > self.max_content_chars:

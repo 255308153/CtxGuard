@@ -1,5 +1,5 @@
 """Unified data models for the Learn evolutionary engine.
-Aligns with Headroom's industrial-grade session analysis and incremental rule consolidation.
+Aligns with CtxGuard Engine's industrial-grade session analysis and incremental rule consolidation.
 """
 
 from __future__ import annotations

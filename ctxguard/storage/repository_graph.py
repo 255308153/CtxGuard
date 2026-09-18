@@ -1,9 +1,9 @@
 """SQLite graph store for CtxGuard's personal knowledge graph memory system.
 
-Modeled after Headroom's SQLiteGraphStore architecture with bounded SQLite storage,
+Modeled after CtxGuard Engine's SQLiteGraphStore architecture with bounded SQLite storage,
 fast indexed lookups, BFS-based subgraph traversal, and supersession chain support.
 
-Key design principles (from headroom 05-长期记忆):
+Key design principles (from ctxguard 05-长期记忆):
   - Supersession Chain: facts are never deleted, only timestamped as superseded.
   - Active-Only Retrieval: all queries default to valid_until IS NULL.
   - FTS5 BM25: keyword retrieval for code symbols and proper nouns (Gap 2).

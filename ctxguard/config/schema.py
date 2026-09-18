@@ -62,6 +62,7 @@ class ToolInjectionConfig:
 class DedupConfig:
     enabled: bool = True
     min_chars: int = 120
+    max_records: int = 1000
     exclude_patterns: List[str] = field(default_factory=lambda: ["*.env*", "*secret*", "*credential*"])
     tool_injection: ToolInjectionConfig = field(default_factory=ToolInjectionConfig)
 
@@ -109,6 +110,8 @@ class ASTCodeCompressorConfig:
     supported_languages: List[str] = field(default_factory=lambda: [
         "python", "py", "javascript", "js", "typescript", "ts", "go", "rust", "rs", "java", "c", "cpp"
     ])
+
+ASTConfig = ASTCodeCompressorConfig
 
 
 @dataclass
@@ -165,8 +168,20 @@ class CacheGuardConfig:
     freeze_prefix_rounds: int = 2
     auto_anthropic_cache_control: bool = True
     min_cacheable_tokens: int = 1024
-    cache_ttl_seconds: int = 3600
+    cache_ttl_seconds: int = 300
     cold_recompact_enabled: bool = True
+    session_serialization_enabled: bool = True
+    session_queue_timeout_seconds: float = 45.0
+    inject_prompt_cache_key: bool = True
+    provider_cache_ttls: Dict[str, int] = field(default_factory=lambda: {
+        "gemini": 300,
+        "google": 300,
+        "antigravity": 300,
+        "openai": 300,
+        "deepseek": 300,
+        "anthropic": 300,
+        "default": 300,
+    })
     provider_read_discounts: Dict[str, float] = field(default_factory=lambda: {
         "anthropic": 0.9,
         "deepseek": 0.9,
@@ -226,7 +241,7 @@ class OutputShapingConfig:
 
 @dataclass
 class ProactiveExpansionConfig:
-    enabled: bool = True
+    enabled: bool = False
     relevance_threshold: float = 0.35
     max_expansions: int = 2
     max_content_chars: int = 1200
@@ -235,7 +250,7 @@ class ProactiveExpansionConfig:
     skip_in_cache_mode: bool = False        # Prioritize upstream KV Cache stability over proactive backfill
     blocked_keywords: List[str] = field(default_factory=lambda: [
         "pytest", "git status", "git diff", "incremental paging queries",
-        "CTXGUARD_AUTO_RULES", "Do not repeatedly execute", "Headroom Learned Patterns"
+        "CTXGUARD_AUTO_RULES", "Do not repeatedly execute", "CtxGuard Engine Learned Patterns"
     ])
 
 

@@ -112,6 +112,7 @@ class ConfigLoader:
             config.dedup = DedupConfig(
                 enabled=dedup_data.get("enabled", config.dedup.enabled),
                 min_chars=int(dedup_data.get("min_chars", config.dedup.min_chars)),
+                max_records=int(dedup_data.get("max_records", config.dedup.max_records)),
                 exclude_patterns=dedup_data.get("exclude_patterns", config.dedup.exclude_patterns),
                 tool_injection=ToolInjectionConfig(
                     enabled=tool_data.get("enabled", config.dedup.tool_injection.enabled),
@@ -192,10 +193,22 @@ class ConfigLoader:
         # Cache guard
         cg_data = data.get("cache_guard", {})
         if cg_data:
+            provider_ttls = dict(config.cache_guard.provider_cache_ttls)
+            if "provider_cache_ttls" in cg_data and isinstance(cg_data["provider_cache_ttls"], dict):
+                provider_ttls.update({str(k).lower(): int(v) for k, v in cg_data["provider_cache_ttls"].items()})
+
             config.cache_guard = CacheGuardConfig(
-                freeze_system_prompt=cg_data.get("freeze_system_prompt", config.cache_guard.freeze_system_prompt),
+                enabled=bool(cg_data.get("enabled", config.cache_guard.enabled)),
+                freeze_system_prompt=bool(cg_data.get("freeze_system_prompt", config.cache_guard.freeze_system_prompt)),
                 freeze_prefix_rounds=int(cg_data.get("freeze_prefix_rounds", config.cache_guard.freeze_prefix_rounds)),
-                auto_anthropic_cache_control=cg_data.get("auto_anthropic_cache_control", config.cache_guard.auto_anthropic_cache_control),
+                auto_anthropic_cache_control=bool(cg_data.get("auto_anthropic_cache_control", config.cache_guard.auto_anthropic_cache_control)),
+                min_cacheable_tokens=int(cg_data.get("min_cacheable_tokens", config.cache_guard.min_cacheable_tokens)),
+                cache_ttl_seconds=int(cg_data.get("cache_ttl_seconds", config.cache_guard.cache_ttl_seconds)),
+                cold_recompact_enabled=bool(cg_data.get("cold_recompact_enabled", config.cache_guard.cold_recompact_enabled)),
+                session_serialization_enabled=bool(cg_data.get("session_serialization_enabled", config.cache_guard.session_serialization_enabled)),
+                session_queue_timeout_seconds=float(cg_data.get("session_queue_timeout_seconds", config.cache_guard.session_queue_timeout_seconds)),
+                inject_prompt_cache_key=bool(cg_data.get("inject_prompt_cache_key", config.cache_guard.inject_prompt_cache_key)),
+                provider_cache_ttls=provider_ttls,
             )
 
         # Thinking manager

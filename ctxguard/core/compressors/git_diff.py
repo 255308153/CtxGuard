@@ -114,15 +114,13 @@ class GitDiffCompressor(BaseCompressor):
             sha = compute_sha256(raw_diff)
             short_sha = compute_short_fingerprint(raw_diff, length=12)
 
-            fingerprint_store[sha] = raw_diff
-            fingerprint_store[short_sha] = raw_diff
-            if self.fingerprint_repo:
-                self.fingerprint_repo.save_fingerprint(sha, session_id, raw_diff)
-                self.fingerprint_repo.save_fingerprint(short_sha, session_id, raw_diff)
-
             compressed_lines = self._compress_hunk_lines(lines, short_sha=short_sha)
             compressed_diff = "\n".join(compressed_lines)
             if len(compressed_diff) < len(raw_diff):
+                fingerprint_store[sha] = raw_diff
+                fingerprint_store[short_sha] = raw_diff
+                if self.fingerprint_repo:
+                    self.fingerprint_repo.save_fingerprint(short_sha, session_id, raw_diff)
                 return compressed_diff
             return None
 

@@ -1,5 +1,5 @@
 """Round-trip Context Writer for idempotent project rule injection and memory synchronization.
-Implements Headroom's round-trip marker preservation, section-level carry-forward, and .gitignore safeguards.
+Implements CtxGuard Engine's round-trip marker preservation, section-level carry-forward, and .gitignore safeguards.
 """
 
 from __future__ import annotations

@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>CtxGuard Real Architecture Diagram - Draft</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&display=swap');
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #f8fafc;
+    width: 1600px;
+    height: 1100px;
+    padding: 22px 32px;
+    color: #1e293b;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* 顶部全局标题栏 (RepoAgent 风格) */
+  .top-header-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #ffffff;
+    border: 3.5px solid #2872e1;
+    border-radius: 18px;
+    padding: 12px 24px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 14px rgba(40, 114, 225, 0.08);
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .brand-badge {
+    background: #2872e1;
+    color: white;
+    font-size: 16px;
+    font-weight: 900;
+    padding: 4px 12px;
+    border-radius: 10px;
+    letter-spacing: 0.5px;
+  }
+
+  .header-title-text h1 {
+    font-size: 23px;
+    font-weight: 900;
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .header-title-text p {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #64748b;
+    margin-top: 2px;
+  }
+
+  .header-stats-pills {
+    display: flex;
+    gap: 10px;
+  }
+
+  .pill-metric {
+    border-radius: 12px;
+    padding: 6px 14px;
+    font-size: 12.5px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .pill-green {
+    background: #dcfce7;
+    border: 2px solid #22c55e;
+    color: #15803d;
+  }
+
+  .pill-blue {
+    background: #dbeafe;
+    border: 2px solid #3b82f6;
+    color: #1d4ed8;
+  }
+
+  .pill-orange {
+    background: #fef3c7;
+    border: 2px solid #f59e0b;
+    color: #b45309;
+  }
+
+  /* 主三列网格布局 */
+  .grid-layout {
+    display: grid;
+    grid-template-columns: 350px 840px 340px;
+    gap: 20px;
+    height: 1000px;
+  }
+
+  /* 基础容器大卡片 (RepoAgent 粗线描边与圆角风格) */
+  .chunky-box {
+    background: #ffffff;
+    border-radius: 20px;
+    position: relative;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.03);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .border-blue { border: 3.5px solid #2872e1; }
+  .border-green { border: 3.5px solid #007e54; }
+  .border-orange { border: 3.5px solid #c97322; }
+  .border-red { border: 3.5px solid #dc2626; }
+  .border-purple-dashed { border: 2.5px dashed #8b5cf6; background: #faf8ff; }
+  .border-dark { border: 3px solid #1f242b; }
+
+  .box-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 900;
+    margin-bottom: 10px;
+  }
+
+  .box-title.blue { color: #2872e1; }
+  .box-title.green { color: #007e54; }
+  .box-title.orange { color: #c97322; }
+  .box-title.red { color: #dc2626; }
+  .box-title.dark { color: #1f242b; }
+
+  /* 通用马卡龙小卡片 (RepoAgent 同款) */
+  .mini-card {
+    border-radius: 12px;
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .card-yellow { background: #fff2d6; border: 2px solid #e2a832; color: #633806; }
+  .card-orange { background: #fde4d6; border: 2px solid #eb7e4d; color: #7c2d12; }
+  .card-blue { background: #d9e9fc; border: 2px solid #5095e8; color: #1e3a8a; }
+  .card-purple { background: #eed7ec; border: 2px solid #aa68aa; color: #581c87; }
+  .card-green { background: #cae8bd; border: 2px solid #5ca642; color: #14532d; }
+  .card-cyan { background: #d4f2fd; border: 2px solid #38bdf8; color: #0c4a6e; }
+  .card-red { background: #fee2e2; border: 2px solid #ef4444; color: #991b1b; }
+
+  .card-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    font-weight: 800;
+    margin-bottom: 2px;
+  }
+
+  .card-desc {
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.35;
+    opacity: 0.9;
+  }
+
+  .tag-badge {
+    font-size: 9.5px;
+    font-weight: 800;
+    padding: 2px 6px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.7);
+    border: 1px solid currentColor;
+  }
+
+  /* ==================== 第 1 列: 客户端与协议 ==================== */
+  .col-left {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    height: 1000px;
+  }
+
+  /* 协议接入层卡片 */
+  .protocols-box {
+    padding: 16px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .protocol-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* 客户端层卡片 */
+  .clients-box {
+    padding: 16px;
+    flex: 1.2;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .agent-items-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .agent-item-row {
+    background: #f8fafc;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .agent-item-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    font-weight: 800;
+    color: #1e293b;
+  }
+
+  .agent-icon-square {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 900;
+    color: white;
+  }
+
+  /* Wrap 挂载按钮 */
+  .wrap-hook-btn {
+    background: #ffffff;
+    border: 2.5px solid #dc2626;
+    border-radius: 12px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 900;
+    color: #dc2626;
+    box-shadow: 0 2px 6px rgba(220, 38, 38, 0.1);
+  }
+
+  /* ==================== 第 2 列: CtxGuard 核心网关与存储 ==================== */
+  .col-center {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: 1000px;
+  }
+
+  /* 顶部存储基础设施 */
+  .storage-top-box {
+    padding: 14px 18px;
+  }
+
+  .storage-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  /* 中间自进化引擎条 */
+  .learn-bar-box {
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .learn-steps {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .learn-step-pill {
+    background: #ffffff;
+    border: 1.5px solid #8b5cf6;
+    color: #6b21a8;
+    padding: 4px 10px;
+    border-radius: 8px;
+  }
+
+  .step-arrow-mini {
+    color: #8b5cf6;
+    font-weight: 900;
+  }
+
+  /* 网关核心 5 层流水线 */
+  .gateway-main-chunky {
+    padding: 14px 18px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .pipeline-header-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .pipeline-tag-group {
+    display: flex;
+    gap: 6px;
+  }
+
+  .tiny-pill {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: #e6f4ea;
+    color: #137333;
+    border: 1px solid #ceead6;
+  }
+
+  .pipeline-layers-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .pipeline-layer-card {
+    border-radius: 14px;
+    padding: 9px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .layer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    font-weight: 900;
+  }
+
+  .layer-subitems {
+    display: flex;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-top: 2px;
+  }
+
+  .subitem-pill {
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 6px;
+    padding: 2px 7px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* 可观测大盘横条 */
+  .observability-bottom-box {
+    padding: 10px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #ffffff;
+  }
+
+  .obs-pills {
+    display: flex;
+    gap: 8px;
+  }
+
+  .obs-pill {
+    background: #f8fafc;
+    border: 1.5px solid #64748b;
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: 11.5px;
+    font-weight: 800;
+    color: #334155;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* ==================== 第 3 列: 上游大模型生态 ==================== */
+  .col-right {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    height: 1000px;
+  }
+
+  .upstream-box {
+    padding: 16px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  .models-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .model-card-item {
+    background: #fff;
+    border-radius: 12px;
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+  }
+
+  .model-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    font-weight: 900;
+  }
+
+  .model-card-sub {
+    font-size: 10px;
+    font-weight: 600;
+    opacity: 0.85;
+  }
+
+  .kpi-bottom-callout {
+    background: #fee2e2;
+    border: 2px solid #ef4444;
+    border-radius: 14px;
+    padding: 10px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .kpi-number {
+    font-size: 25px;
+    font-weight: 900;
+    color: #991b1b;
+  }
+
+  .kpi-label {
+    font-size: 11px;
+    font-weight: 800;
+    color: #b91c1c;
+  }
+
+  /* 流程连线与编号徽章 ① ② ③ */
+  .flow-badge {
+    position: absolute;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 3.5px solid #2872e1;
+    color: #2872e1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 19px;
+    font-weight: 900;
+    box-shadow: 0 4px 10px rgba(40, 114, 225, 0.2);
+    z-index: 30;
+  }
+
+  .flow-svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 20;
+  }
+</style>
+</head>
+<body>
+
+  <!-- 流程连线层 -->
+  <svg class="flow-svg" xmlns="http://www.w3.org/2000/svg">
+    <!-- 1号流向: 协议层/客户端 -> CtxGuard 核心网关 -->
+    <path d="M 382 540 L 402 540" fill="none" stroke="#2872e1" stroke-width="3.5" stroke-linecap="round"/>
+    <polygon points="405,540 395,534 395,546" fill="#2872e1"/>
+
+    <!-- 2号流向: CtxGuard 核心网关 -> 上游大模型生态 -->
+    <path d="M 1242 540 L 1262 540" fill="none" stroke="#2872e1" stroke-width="3.5" stroke-linecap="round"/>
+    <polygon points="1265,540 1255,534 1255,546" fill="#2872e1"/>
+
+    <!-- 3号流向: 优雅闭环回流 (从右侧上游大模型回流到底部可观测审计) -->
+    <path d="M 1430 940 C 1430 1060 1150 1060 1150 1025" fill="none" stroke="#2872e1" stroke-width="3" stroke-dasharray="6,6" stroke-linecap="round"/>
+    <polygon points="1150,1020 1144,1032 1156,1032" fill="#2872e1"/>
+  </svg>
+
+  <!-- 编号徽章 ① ② ③ -->
+  <div class="flow-badge" style="top: 522px; left: 366px;">1</div>
+  <div class="flow-badge" style="top: 522px; left: 1224px;">2</div>
+  <div class="flow-badge" style="top: 1040px; left: 1280px;">3</div>
+
+  <!-- 顶部全局标题栏 -->
+  <div class="top-header-bar">
+    <div class="header-left">
+      <div class="brand-badge">CtxGuard 2.0</div>
+      <div class="header-title-text">
+        <h1>AI Agent 上下文治理与智能缓存加速网关</h1>
+        <p>Ultra-Low-Latency Protocol Gateway • Zero-Code-Invasive • 100% KV Cache Stability</p>
+      </div>
+    </div>
+    <div class="header-stats-pills">
+      <div class="pill-metric pill-blue">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        处理延迟 &lt; 0.2ms
+      </div>
+      <div class="pill-metric pill-green">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg>
+        综合节省 74.37%
+      </div>
+      <div class="pill-metric pill-orange">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        100% 前缀缓存保活
+      </div>
+    </div>
+  </div>
+
+  <!-- 主体三列网格 -->
+  <div class="grid-layout">
+
+    <!-- ==================== 第 1 列: 协议层与客户端生态 ==================== -->
+    <div class="col-left">
+
+      <!-- 1. 接入协议层 -->
+      <div class="chunky-box border-blue protocols-box">
+        <div>
+          <div class="box-title blue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            接入协议层 INBOUND
+          </div>
+          <div class="protocol-list">
+            <div class="mini-card card-blue">
+              <div class="card-title-row">
+                <span>OpenAI Responses</span>
+                <span class="tag-badge">/backend-api</span>
+              </div>
+              <div class="card-desc">Codex &amp; ChatGPT 官方反代协议</div>
+            </div>
+
+            <div class="mini-card card-cyan">
+              <div class="card-title-row">
+                <span>Chat Completions</span>
+                <span class="tag-badge">/v1/chat</span>
+              </div>
+              <div class="card-desc">标准 OpenAI 兼容对话端点</div>
+            </div>
+
+            <div class="mini-card card-orange">
+              <div class="card-title-row">
+                <span>Anthropic Messages</span>
+                <span class="tag-badge">/v1/messages</span>
+              </div>
+              <div class="card-desc">Claude 原生结构与思考链协议</div>
+            </div>
+
+            <div class="mini-card card-green">
+              <div class="card-title-row">
+                <span>Two-Stage SSE Stream</span>
+                <span class="tag-badge" style="color: #15803d; border-color: #15803d;">STREAM-SAFE</span>
+              </div>
+              <div class="card-desc">双阶段状态探测，防止流断裂异常</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size: 11px; color: #2872e1; font-weight: 700; text-align: center; background: #eff6ff; padding: 6px; border-radius: 8px;">
+          零侵入透明代理 • 标准 HTTP 反向劫持
+        </div>
+      </div>
+
+      <!-- 2. 智能体客户端生态 -->
+      <div class="chunky-box border-blue clients-box">
+        <div>
+          <div class="box-title blue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>
+            智能体客户端 CLIENTS
+          </div>
+
+          <div class="agent-items-grid">
+            <div class="agent-item-row">
+              <div class="agent-item-left">
+                <div class="agent-icon-square" style="background: #d97706;">CC</div>
+                <span>Claude Code CLI</span>
+              </div>
+              <span class="tag-badge">CLI</span>
+            </div>
+
+            <div class="agent-item-row">
+              <div class="agent-item-left">
+                <div class="agent-icon-square" style="background: #007acc;">VS</div>
+                <span>Cursor &amp; Windsurf</span>
+              </div>
+              <span class="tag-badge">IDE</span>
+            </div>
+
+            <div class="agent-item-row">
+              <div class="agent-item-left">
+                <div class="agent-icon-square" style="background: #10b981;">Cd</div>
+                <span>Codex Desktop / App</span>
+              </div>
+              <span class="tag-badge">DESKTOP</span>
+            </div>
+
+            <div class="agent-item-row">
+              <div class="agent-item-left">
+                <div class="agent-icon-square" style="background: #6366f1;">Pi</div>
+                <span>Pi Web &amp; Autonomous</span>
+              </div>
+              <span class="tag-badge">WEB/TUI</span>
+            </div>
+
+            <div class="agent-item-row">
+              <div class="agent-item-left">
+                <div class="agent-icon-square" style="background: #64748b;">SDK</div>
+                <span>Custom Agent SDK</span>
+              </div>
+              <span class="tag-badge">LangChain</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 一键劫持按钮 -->
+        <div class="wrap-hook-btn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          ctxguard wrap &lt;agent&gt; (一键拉起)
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ==================== 第 2 列: CtxGuard 核心网关与基础设施 ==================== -->
+    <div class="col-center">
+
+      <!-- 1. 底层持久化与状态基础设施 -->
+      <div class="chunky-box border-orange storage-top-box">
+        <div class="box-title orange" style="justify-content: space-between; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+            底层持久化与状态基础设施 PERSISTENT STORAGE
+          </div>
+          <span style="font-size: 11px; font-weight: 700; color: #92400e;">Zero-Dependency • SQLite WAL (.ctxguard.db)</span>
+        </div>
+
+        <div class="storage-cards-grid">
+          <div class="mini-card card-yellow">
+            <div class="card-title-row">
+              <span>SQLite WAL</span>
+              <span class="tag-badge">DB ENGINE</span>
+            </div>
+            <div class="card-desc">单文件单写多读并发 CAS 底座</div>
+          </div>
+
+          <div class="mini-card card-purple">
+            <div class="card-title-row">
+              <span>Temporal KG</span>
+              <span class="tag-badge">GRAPH</span>
+            </div>
+            <div class="card-desc">时序跨会话实体关系拓扑</div>
+          </div>
+
+          <div class="mini-card card-cyan">
+            <div class="card-title-row">
+              <span>Semantic Cache</span>
+              <span class="tag-badge">CACHE</span>
+            </div>
+            <div class="card-desc">0-Token 历史提问完全命中</div>
+          </div>
+
+          <div class="mini-card card-blue">
+            <div class="card-title-row">
+              <span>LRU Fingerprints</span>
+              <span class="tag-badge">INDEX</span>
+            </div>
+            <div class="card-desc">10,000+ 纯内存热点指纹 (0.01ms)</div>
+          </div>
+
+          <div class="mini-card card-green">
+            <div class="card-title-row">
+              <span>Savings Ledger</span>
+              <span class="tag-badge">LEDGER</span>
+            </div>
+            <div class="card-desc">精确 Token 与成本消耗审计账本</div>
+          </div>
+
+          <div class="mini-card card-orange">
+            <div class="card-title-row">
+              <span>Rule Storage</span>
+              <span class="tag-badge">RULES</span>
+            </div>
+            <div class="card-desc">AGENTS.md 规则持久化结转</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. ctxguard learn 离线自进化引擎 -->
+      <div class="chunky-box border-purple-dashed learn-bar-box">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="background: #8b5cf6; color: white; font-size: 11px; font-weight: 900; padding: 2px 8px; border-radius: 6px;">ctxguard learn</span>
+          <span style="font-size: 12.5px; font-weight: 800; color: #4c1d95;">离线自进化规则挖掘引擎</span>
+          <span style="font-size: 11px; color: #6b21a8; font-weight: 600;">(深度扫描会话日志 • 挖掘死循环与重复报错 • 自动结转)</span>
+        </div>
+
+        <div class="learn-steps">
+          <div class="learn-step-pill">LogScanner</div>
+          <span class="step-arrow-mini">➔</span>
+          <div class="learn-step-pill">LoopDetector</div>
+          <span class="step-arrow-mini">➔</span>
+          <div class="learn-step-pill">CausalityPivot</div>
+          <span class="step-arrow-mini">➔</span>
+          <div class="learn-step-pill" style="background: #7c3aed; color: white;">AtomicWriter</div>
+        </div>
+      </div>
+
+      <!-- 3. CtxGuard Gateway Core 网关核心流水线 (大主框) -->
+      <div class="chunky-box border-green gateway-main-chunky">
+        <div>
+          <div class="pipeline-header-bar">
+            <div class="box-title green" style="margin-bottom: 0;">
+              <!-- 绿圈双环 / 无限大图标 (RepoAgent 同款) -->
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#007e54" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M18.178 8c5.096 0 5.096 8 0 8-5.095 0-7.133-8-12.228-8-5.096 0-5.096 8 0 8 5.095 0 7.133-8 12.228-8z"/>
+              </svg>
+              <span>CtxGuard Gateway Core 网关核心治理流水线</span>
+              <span style="font-size: 13px; font-weight: 900; background: #d1fae5; color: #065f46; padding: 3px 10px; border-radius: 12px;">:8787</span>
+            </div>
+
+            <div class="pipeline-tag-group">
+              <span class="tiny-pill">Rust / C-Speed AST</span>
+              <span class="tiny-pill">Zero Drift Guarantee</span>
+              <span class="tiny-pill">Dynamic Suffix Only</span>
+            </div>
+          </div>
+
+          <!-- 5 层治理流水线堆栈 -->
+          <div class="pipeline-layers-stack">
+
+            <!-- Layer 1: 协议归一化与虚拟工具短路 -->
+            <div class="pipeline-layer-card card-cyan">
+              <div class="layer-head">
+                <span>1. 协议归一化与虚拟工具短路 (Protocol Normalization &amp; Short-Circuit)</span>
+                <span class="tag-badge" style="color: #0e7490; border-color: #0e7490;">ZERO-COPY DEDUP</span>
+              </div>
+              <div class="layer-subitems">
+                <div class="subitem-pill">
+                  <strong>Schema 确定性字母重排:</strong> 统一 Tool 定义结构，彻底消除字段乱序造成的上游缓存击穿
+                </div>
+                <div class="subitem-pill" style="color: #0c4a6e;">
+                  <strong>虚拟工具 ctx_expand 短路拦截:</strong> 本地 0.1ms 还原原文并自动续写，屏蔽虚拟调用
+                </div>
+              </div>
+            </div>
+
+            <!-- Layer 2: Tool 影子状态机与增量差分 -->
+            <div class="pipeline-layer-card card-orange">
+              <div class="layer-head">
+                <span>2. Tool 影子状态机与增量差分 (Tool Delta &amp; Shadow State Engine)</span>
+                <span class="tag-badge" style="color: #c2410c; border-color: #c2410c;">90%+ REDUCTION</span>
+              </div>
+              <div class="layer-subitems">
+                <div class="subitem-pill">
+                  <strong>会话影子快照机:</strong> 内存维持最新文件与目录快照
+                </div>
+                <div class="subitem-pill">
+                  <strong>Jaccard 相似度探测:</strong> 相似度 &ge; 0.85 判定同源探针
+                </div>
+                <div class="subitem-pill" style="color: #9a3412;">
+                  <strong>增量差分 (+Added / -Removed):</strong> 折叠数千未变更条目 (100% 可逆)
+                </div>
+              </div>
+            </div>
+
+            <!-- Layer 3: 结构感知压缩流水线 -->
+            <div class="pipeline-layer-card card-yellow">
+              <div class="layer-head">
+                <span>3. 结构感知压缩流水线 (Structural Compression Pipeline)</span>
+                <span class="tag-badge" style="color: #b45309; border-color: #b45309;">MULTI-LANGUAGE AST</span>
+              </div>
+              <div class="layer-subitems">
+                <div class="subitem-pill">
+                  <strong>Tree-sitter 纯 C AST (&lt;1ms):</strong> 9+ 语言语法树骨架折叠，保留签名与 Docstring
+                </div>
+                <div class="subitem-pill">
+                  <strong>Log 智能截断:</strong> Head 25 / Tail 75
+                </div>
+                <div class="subitem-pill">
+                  <strong>密钥脱敏 Redactor:</strong> API Key/Token/私钥打码
+                </div>
+              </div>
+            </div>
+
+            <!-- Layer 4: 跨轮次思考链生命周期治理 -->
+            <div class="pipeline-layer-card card-purple">
+              <div class="layer-head">
+                <span>4. 跨轮次思考链生命周期治理 (Thinking Lifecycle Manager)</span>
+                <span class="tag-badge" style="color: #7e22ce; border-color: #7e22ce;">ANTI-MIMICRY &amp; PRUNE</span>
+              </div>
+              <div class="layer-subitems">
+                <div class="subitem-pill">
+                  <strong>Google Gemini 3.8:</strong> 跨轮次剥离 thought 块，避免死循环反刍
+                </div>
+                <div class="subitem-pill">
+                  <strong>Claude 3.7+ / 4:</strong> 保留合法思考签名防报错，超限轮次深度无缝剪裁
+                </div>
+                <div class="subitem-pill">
+                  <strong>DeepSeek R1 / GPT-5.6:</strong> 剥离历史 reasoning 二次计费
+                </div>
+              </div>
+            </div>
+
+            <!-- Layer 5: 云端 Prompt Cache 守护与经济套利 -->
+            <div class="pipeline-layer-card card-green">
+              <div class="layer-head">
+                <span>5. 云端 Prompt Cache 守护与经济套利 (Cache Guard &amp; Invariants)</span>
+                <span class="tag-badge" style="color: #15803d; border-color: #15803d;">100% PREFIX STABILITY</span>
+              </div>
+              <div class="layer-subitems">
+                <div class="subitem-pill">
+                  <strong>二进制切片透传 (Zero-Copy):</strong> 跳过反序列化，确保 HTTP 字节与 SHA-256 绝对无漂移
+                </div>
+                <div class="subitem-pill">
+                  <strong>静态前缀冻结 (System Freeze):</strong> System Prompt 绝对锁定
+                </div>
+                <div class="subitem-pill">
+                  <strong>经济套利仲裁:</strong> 确保压缩收益击败 Cache 命中折扣
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <div style="font-size: 11.5px; color: #007e54; font-weight: 700; background: #e6f4ea; padding: 6px 12px; border-radius: 8px; text-align: center; margin-top: 4px;">
+          毫秒级算子流水线 • 纯内存首查 • 工作线程池异步卸载 • 保证云端 KV Cache 理论最高命中率
+        </div>
+      </div>
+
+      <!-- 4. 一体化可观测大盘与 CLI 审计体系 -->
+      <div class="chunky-box border-dark observability-bottom-box">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="background: #1f242b; color: white; font-size: 11px; font-weight: 900; padding: 2px 8px; border-radius: 6px;">OBS</span>
+          <span style="font-size: 13px; font-weight: 900; color: #0f172a;">一体化可观测大盘与 CLI 审计体系 OBSERVABILITY &amp; AUDIT</span>
+        </div>
+
+        <div class="obs-pills">
+          <div class="obs-pill">:8787/dashboard</div>
+          <div class="obs-pill">ctxguard stats</div>
+          <div class="obs-pill">ctxguard savings</div>
+          <div class="obs-pill">ctxguard wrap &lt;agent&gt;</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ==================== 第 3 列: 上游前沿大模型生态 ==================== -->
+    <div class="col-right">
+      <div class="chunky-box border-red upstream-box">
+        <div>
+          <div class="box-title red">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+            上游前沿大模型 UPSTREAM
+          </div>
+
+          <div class="models-stack">
+            <!-- Gemini -->
+            <div class="model-card-item card-cyan">
+              <div class="model-card-head">
+                <span>Google Gemini</span>
+                <span class="tag-badge">3.8 FLASH</span>
+              </div>
+              <div class="model-card-sub">Gemini 3.8 Flash / 3.0 Pro • Native Thinking</div>
+            </div>
+
+            <!-- OpenAI -->
+            <div class="model-card-item card-green">
+              <div class="model-card-head">
+                <span>OpenAI</span>
+                <span class="tag-badge">GPT-5.6</span>
+              </div>
+              <div class="model-card-sub">GPT-5.6 / GPT-5 / o3 • Reasoning Guard</div>
+            </div>
+
+            <!-- Anthropic Claude -->
+            <div class="model-card-item card-orange">
+              <div class="model-card-head">
+                <span>Anthropic Claude</span>
+                <span class="tag-badge">CLAUDE 4</span>
+              </div>
+              <div class="model-card-sub">Claude 3.7 Sonnet / Claude 4 • 90% Ephemeral Cache</div>
+            </div>
+
+            <!-- DeepSeek -->
+            <div class="model-card-item card-purple">
+              <div class="model-card-head">
+                <span>DeepSeek</span>
+                <span class="tag-badge">R1 / R2</span>
+              </div>
+              <div class="model-card-sub">DeepSeek R1 / R2 / V3 • Prefix KV Cache</div>
+            </div>
+
+            <!-- xAI Grok -->
+            <div class="model-card-item card-yellow">
+              <div class="model-card-head">
+                <span>xAI Grok</span>
+                <span class="tag-badge">GROK 3</span>
+              </div>
+              <div class="model-card-sub">Grok 3 Think / Grok 4 • Agentic Reasoning</div>
+            </div>
+
+            <!-- 开源与私有化 -->
+            <div class="model-card-item card-blue">
+              <div class="model-card-head">
+                <span>Open-Source / Private</span>
+                <span class="tag-badge">vLLM / SGL</span>
+              </div>
+              <div class="model-card-sub">QwQ-32B / Qwen 3 / vLLM • Local Engine</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 底部核心 KPI 告示卡 -->
+        <div class="kpi-bottom-callout">
+          <div class="kpi-number">74.37%</div>
+          <div class="kpi-label">真实生产实测综合压缩率</div>
+          <div style="font-size: 10px; color: #7f1d1d; font-weight: 700; margin-top: 2px;">
+            端到端微秒级处理 • 理论最高 KV Cache 命中
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

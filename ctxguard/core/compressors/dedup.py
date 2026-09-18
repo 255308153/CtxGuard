@@ -62,15 +62,12 @@ class DedupCompressor(BaseCompressor):
             sha = compute_sha256(text)
             short_sha = compute_short_fingerprint(text, length=12)
 
-            # Skip redundant re-indexing and disk writes if already indexed in this session
+            # Skip redundant re-indexing if already indexed in this session
             if sha in fingerprint_store:
                 continue
 
             fingerprint_store[sha] = text
             fingerprint_store[short_sha] = text
-            if self.fingerprint_repo:
-                self.fingerprint_repo.save_fingerprint(sha, session_id, text)
-                self.fingerprint_repo.save_fingerprint(short_sha, session_id, text)
 
     def process(self, context: RequestContext, target_messages: list[Message]) -> None:
         if not self.is_applicable(context):
@@ -118,14 +115,19 @@ class DedupCompressor(BaseCompressor):
                     ref_tag = f"<!-- [Cached duplicate context: {file_label}{line_count} lines unchanged (sha256_{short_sha})] -->"
 
                 msg.set_text_content(ref_tag)
+                # Only persist to SQLite when content is actually folded/compressed (single write of short_sha)
+                if self.fingerprint_repo:
+                    self.fingerprint_repo.save_fingerprint(
+                        short_sha,
+                        session_id,
+                        text,
+                        max_records=getattr(self.config, "max_records", 1000),
+                    )
                 if self.name not in context.applied_compressors:
                     context.applied_compressors.append(self.name)
             else:
                 fingerprint_store[sha] = text
                 fingerprint_store[short_sha] = text
-                if self.fingerprint_repo:
-                    self.fingerprint_repo.save_fingerprint(sha, session_id, text)
-                    self.fingerprint_repo.save_fingerprint(short_sha, session_id, text)
 
     def expand_ref(self, session_id: str, ref_id: str) -> Optional[str]:
         clean_ref = ref_id.replace("sha256_", "").strip()
@@ -133,5 +135,5 @@ class DedupCompressor(BaseCompressor):
         if clean_ref in store:
             return store[clean_ref]
         if self.fingerprint_repo:
-            return self.fingerprint_repo.get_content(clean_ref)
+            return self.fingerprint_repo.get_content(clean_ref, session_id=session_id) or self.fingerprint_repo.get_content(clean_ref)
         return None

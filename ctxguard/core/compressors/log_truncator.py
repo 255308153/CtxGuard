@@ -9,6 +9,7 @@ from ctxguard.utils.hasher import compute_sha256, compute_short_fingerprint
 from ctxguard.storage.repository_fingerprint import FingerprintRepository
 
 
+# Backward-compatibility alias
 class LogTruncator(BaseCompressor):
     """Truncates ultra-long terminal and tool execution logs preserving head and tail lines."""
 
@@ -57,7 +58,6 @@ class LogTruncator(BaseCompressor):
         self.session_fingerprints[session_id][short_sha] = full_text
 
         if self.fingerprint_repo:
-            self.fingerprint_repo.save_fingerprint(sha, session_id, full_text)
             self.fingerprint_repo.save_fingerprint(short_sha, session_id, full_text)
 
         head_part = lines[:head]
@@ -124,3 +124,7 @@ class LogTruncator(BaseCompressor):
                 msg.set_text_content(optimized)
                 if self.name not in context.applied_compressors:
                     context.applied_compressors.append(self.name)
+
+
+# Backward-compatibility alias
+LogTruncatorCompressor = LogTruncator

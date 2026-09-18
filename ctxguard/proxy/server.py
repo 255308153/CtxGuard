@@ -24,7 +24,7 @@ def create_app(config: AppConfig) -> FastAPI:
 
     db_manager = DatabaseManager(config.learn.storage_db)
     stats_repo = StatsRepository(db_manager)
-    fingerprint_repo = FingerprintRepository(db_manager)
+    fingerprint_repo = FingerprintRepository(db_manager, max_records=config.dedup.max_records)
     graph_store = SQLiteGraphStore(db_manager)
 
     pipeline = CompressionPipeline(config, fingerprint_repo=fingerprint_repo, db_manager=db_manager)

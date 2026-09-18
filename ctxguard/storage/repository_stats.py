@@ -46,6 +46,7 @@ class StatsRepository:
         prompt_preview: str = "",
         cached_tokens: int = 0,
         cache_type: str = "none",
+        status: str = "completed",
     ) -> int:
         """Record a completed request metric with session, project, preview, and cache stats."""
         # Ensure optimized_tokens is at least cached_tokens (ground truth consistency)
@@ -72,8 +73,8 @@ class StatsRepository:
                 INSERT INTO requests (
                     session_id, project_name, prompt_preview, protocol, model,
                     raw_tokens, optimized_tokens, saved_tokens, saved_ratio,
-                    latency_ms, applied_compressors, cached_tokens, cache_type
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    latency_ms, applied_compressors, cached_tokens, cache_type, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -89,6 +90,7 @@ class StatsRepository:
                     json.dumps(applied_compressors),
                     cached_tokens,
                     cache_type,
+                    status,
                 ),
             )
             conn.commit()
@@ -115,7 +117,8 @@ class StatsRepository:
                         optimized_tokens = ?,
                         raw_tokens = MAX(raw_tokens, ?),
                         saved_tokens = MAX(0, MAX(raw_tokens, ?) - ?),
-                        saved_ratio = ROUND((MAX(0, MAX(raw_tokens, ?) - ?) * 100.0) / MAX(1, MAX(raw_tokens, ?)), 2)
+                        saved_ratio = ROUND((MAX(0, MAX(raw_tokens, ?) - ?) * 100.0) / MAX(1, MAX(raw_tokens, ?)), 2),
+                        status = 'completed'
                     WHERE id = ?
                     """,
                     (cached_tokens, cache_type, effective_opt, effective_opt, effective_opt, effective_opt, effective_opt, effective_opt, effective_opt, request_id),
@@ -127,11 +130,20 @@ class StatsRepository:
                     SET cached_tokens = ?,
                         cache_type = ?,
                         optimized_tokens = MAX(optimized_tokens, ?),
-                        raw_tokens = MAX(raw_tokens, ?)
+                        raw_tokens = MAX(raw_tokens, ?),
+                        status = 'completed'
                     WHERE id = ?
                     """,
                     (cached_tokens, cache_type, cached_tokens, cached_tokens, request_id),
                 )
+            conn.commit()
+
+    def mark_request_completed(self, request_id: int) -> None:
+        """Mark in-flight streaming request as completed if stream finishes without token updates."""
+        if not request_id:
+            return
+        with self.db.get_connection() as conn:
+            conn.execute("UPDATE requests SET status = 'completed' WHERE id = ?", (request_id,))
             conn.commit()
 
     def get_summary(self, project_name: Optional[str] = None) -> Dict[str, Any]:
@@ -382,7 +394,8 @@ class StatsRepository:
                        protocol, model, raw_tokens, optimized_tokens, saved_tokens,
                        saved_ratio, latency_ms, applied_compressors,
                        COALESCE(cached_tokens, 0) as cached_tokens,
-                       COALESCE(cache_type, 'none') as cache_type
+                       COALESCE(cache_type, 'none') as cache_type,
+                       COALESCE(status, 'completed') as status
                 FROM requests
                 ORDER BY id DESC
                 LIMIT ?

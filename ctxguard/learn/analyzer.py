@@ -1,4 +1,4 @@
-"""Industrial-grade Session Analyzer implementing Headroom's 3-tier analysis strategy:
+"""Industrial-grade Session Analyzer implementing CtxGuard Engine's 3-tier analysis strategy:
 1. Direct LLM API (LiteLLM / OpenAI / Anthropic)
 2. Local Agent CLI (claude -p / gemini -p / codex exec) for Keyless operation
 3. Local Heuristic Causal Extraction (Offline / Zero-Token Fallback)
@@ -129,7 +129,7 @@ Do not include any Markdown wrap except raw JSON array or codeblock."""
         return None
 
     def _try_local_cli(self, digest: str) -> Optional[List[LearnedRule]]:
-        """Headroom Keyless Mode: invoke local installed agent CLIs with prompt."""
+        """CtxGuard Engine Keyless Mode: invoke local installed agent CLIs with prompt."""
         if "PYTEST_CURRENT_TEST" in os.environ or os.environ.get("CTXGUARD_SKIP_CLI"):
             return None
 

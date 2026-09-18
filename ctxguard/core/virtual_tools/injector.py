@@ -63,7 +63,7 @@ class VirtualToolInjector:
                     },
                 })
 
-        # 2. memory_save virtual tool (Headroom aligned)
+        # 2. memory_save virtual tool (CtxGuard Engine aligned)
         if "memory_save" not in existing_names:
             if request.protocol == "anthropic":
                 request.tools.append({

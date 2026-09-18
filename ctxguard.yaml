@@ -32,6 +32,7 @@ upstream:
 dedup:
   enabled: true
   min_chars: 120
+  max_records: 1000
   exclude_patterns:
     - "*.env*"
     - "*secret*"
@@ -111,6 +112,16 @@ cache_guard:
   freeze_system_prompt: true
   freeze_prefix_rounds: 2
   auto_anthropic_cache_control: true
+  cache_ttl_seconds: 300
+  cold_recompact_enabled: true
+  provider_cache_ttls:
+    gemini: 300
+    google: 300
+    antigravity: 300
+    openai: 300
+    deepseek: 300
+    anthropic: 300
+    default: 300
 
 learn:
   storage_db: ".ctxguard.db"
@@ -130,7 +141,7 @@ learn:
       marker: "CTXGUARD_AUTO_RULES"
 
 proactive_expansion:
-  enabled: true
+  enabled: false
   relevance_threshold: 0.35
   max_expansions: 2
   max_content_chars: 1200

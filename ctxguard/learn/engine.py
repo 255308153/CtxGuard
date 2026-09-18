@@ -16,7 +16,7 @@ from ctxguard.utils.token_counter import estimate_tokens_from_text
 
 
 class LearnEngine:
-    """End-to-end learning pipeline following Headroom's industrial design."""
+    """End-to-end learning pipeline following CtxGuard Engine's industrial design."""
 
     def __init__(
         self,

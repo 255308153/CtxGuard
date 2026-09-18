@@ -44,7 +44,7 @@ def _estimate_tokens(text: str) -> int:
 class MemoryInjectionBudget:
     """Controls how many memories are injected into each prompt.
 
-    Implements the headroom 05-长期记忆 budget rules:
+    Implements the ctxguard 05-长期记忆 budget rules:
       - max_tokens: hard cap on total injected memory token count (default 1024)
       - max_items:  hard cap on number of memory lines injected (default 10)
       - Line-safe trimming: never cuts mid-sentence; trims at line boundaries.

@@ -17,17 +17,22 @@ def get_dashboard_html() -> str:
         extend: {
           colors: {
             brand: {
-              50: '#ecfdf5',
-              400: '#34d399',
-              500: '#10b981',
-              600: '#059669',
-              900: '#064e3b',
+              400: '#ff7043',
+              500: '#ff5722',
+              600: '#f4511e',
+            },
+            techblue: {
+              400: '#448aff',
+              500: '#2979ff',
             },
             dark: {
-              bg: '#090d16',
-              card: '#111827',
-              border: '#1f293d',
-              input: '#0d1322'
+              bg: '#0c0c0c',
+              card: '#121212',
+              cardhover: '#161616',
+              border: '#222222',
+              borderlight: '#2a2a2a',
+              input: '#151515',
+              subtext: '#888888'
             }
           }
         }
@@ -35,187 +40,218 @@ def get_dashboard_html() -> str:
     }
   </script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-    body { font-family: 'Plus Jakarta Sans', sans-serif; background: #090d16; color: #f3f4f6; }
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0c0c0c;
+      color: #e0e0e0;
+      letter-spacing: -0.01em;
+    }
     code, pre, .font-mono { font-family: 'JetBrains Mono', monospace; }
-    .glass { background: rgba(17, 24, 39, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(31, 41, 61, 0.8); }
-    .glow-emerald { box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.2); }
-    .glow-purple { box-shadow: 0 0 25px -5px rgba(168, 85, 247, 0.2); }
+    .glass {
+      background: #121212;
+      border: 1px solid #222222;
+    }
+    .card-hover:hover {
+      background: #161616;
+      border-color: #333333;
+    }
+    /* Sleek minimal scrollbar */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: #0c0c0c; }
+    ::-webkit-scrollbar-thumb { background: #262626; border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+    .tab-active {
+      color: #ffffff !important;
+      border-bottom: 2px solid #ffffff !important;
+    }
+    .tab-inactive {
+      color: #888888 !important;
+      border-bottom: 2px solid transparent !important;
+    }
+    .tab-inactive:hover {
+      color: #cccccc !important;
+    }
   </style>
 </head>
-<body class="min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white">
+<body class="min-h-screen flex flex-col antialiased selection:bg-[#ff5722] selection:text-white">
 
-  <!-- Top Navigation Header -->
-  <header class="border-b border-dark-border glass sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-      <div class="flex items-center space-x-3">
-        <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-brand-500/20 font-extrabold text-gray-950">
-          CG
+  <!-- Top Navigation Header (Minimalist Frontier Monitor Style) -->
+  <header class="border-b border-[#222222] bg-[#0c0c0c] sticky top-0 z-50">
+    <div class="max-w-[1560px] mx-auto px-4 sm:px-6 lg:px-8 h-12 flex items-center justify-between">
+      <!-- Left: Navigation Tabs (overview / metrics / rules / graph) -->
+      <div class="flex items-center space-x-6 h-full">
+        <div class="flex items-center space-x-2 mr-2">
+          <span class="inline-block w-2 h-2 rounded-full bg-[#ff5722] animate-pulse"></span>
+          <span class="text-sm font-semibold tracking-wider text-white uppercase">CtxGuard</span>
         </div>
-        <div>
-          <span class="text-lg font-extrabold tracking-tight bg-gradient-to-r from-white via-gray-100 to-brand-400 bg-clip-text text-transparent">CtxGuard 控制面板</span>
-          <span class="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20">v0.1.0</span>
-        </div>
+        <nav class="flex items-center space-x-5 h-full text-xs font-mono">
+          <a href="#section-overview" class="tab-active h-full flex items-center px-1 font-medium transition-colors">overview</a>
+          <a href="#section-traffic" class="tab-inactive h-full flex items-center px-1 transition-colors">metrics</a>
+          <a href="#section-rules" class="tab-inactive h-full flex items-center px-1 transition-colors">rules</a>
+          <a href="#section-graph" class="tab-inactive h-full flex items-center px-1 transition-colors">graph</a>
+        </nav>
       </div>
-      
-      <!-- Live Status Pill & Actions -->
-      <div class="flex items-center space-x-3">
-        <div class="flex items-center space-x-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-xs font-medium text-emerald-400">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>网关在线 (端口: 8787 • SQLite 驱动)</span>
+
+      <!-- Right: Clocks (Beijing, LA, NY, London) & Total Saved Cost -->
+      <div class="flex items-center space-x-6 text-[11px] font-mono text-[#888888]">
+        <div class="hidden md:flex items-center space-x-4 border-r border-[#222222] pr-6">
+          <div><span class="text-[#555555] mr-1">BEIJING</span><span id="clock-beijing" class="text-[#cccccc]">--:--:--</span></div>
+          <div><span class="text-[#555555] mr-1">LOS ANGELES</span><span id="clock-la" class="text-[#cccccc]">--:--:--</span></div>
+          <div><span class="text-[#555555] mr-1">NEW YORK</span><span id="clock-ny" class="text-[#cccccc]">--:--:--</span></div>
+          <div><span class="text-[#555555] mr-1">LONDON</span><span id="clock-london" class="text-[#cccccc]">--:--:--</span></div>
         </div>
-        <button onclick="triggerSimulatedLiveRequest()" class="px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/30 transition flex items-center space-x-1.5 shadow-sm">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          <span>发送测试请求入库</span>
-        </button>
-        <button onclick="refreshData()" class="px-3 py-1.5 rounded-lg bg-dark-card border border-dark-border text-xs font-semibold hover:bg-gray-800 transition flex items-center space-x-1.5">
-          <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-          <span>刷新</span>
-        </button>
+
+        <!-- Total Saved Stat -->
+        <div class="flex items-center space-x-2">
+          <span class="text-[#555555] uppercase text-[10px] tracking-wider">TOTAL SAVED</span>
+          <span id="stat-dollars-saved" class="text-white font-semibold text-xs tracking-tight">$0.00</span>
+        </div>
+
+        <!-- Auto-refresh Indicator -->
+        <div class="flex items-center space-x-2 pl-2">
+          <div class="w-1.5 h-1.5 rounded-full bg-[#2979ff] animate-ping"></div>
+          <span class="text-[10px] text-[#555555]">LIVE</span>
+        </div>
       </div>
     </div>
   </header>
 
-  <!-- Main Content Tabs -->
-  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-
-    <!-- KPI Metric Cards Grid (Direct SQLite Aggregations) -->
-    <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-      <!-- Card 1 -->
-      <div class="glass p-5 rounded-2xl glow-emerald">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-semibold uppercase tracking-wider text-gray-400">真实累计节省 Token</span>
-          <span class="p-2 rounded-xl bg-brand-500/10 text-brand-400">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-          </span>
+  <main class="flex-1 max-w-[1560px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+  <!-- SECTION: notices (System Real-Time Log & Anomaly Stream) -->
+    <section id="section-overview" class="bg-[#111111] border border-[#222222] rounded-md p-4 space-y-3 font-mono">
+      <div class="flex items-center justify-between border-b border-[#1c1c1c] pb-2">
+        <div class="flex items-center space-x-2">
+          <span class="text-xs font-semibold text-[#888888] lowercase">notices</span>
+          <span class="text-[10px] text-[#555555]">// live telemetry & incident mitigation</span>
         </div>
-        <div class="mt-4 flex items-baseline justify-between">
-          <span id="stat-saved-tokens" class="text-3xl font-extrabold text-white font-mono">0</span>
-          <span id="stat-saved-percent" class="text-sm font-bold text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded-md font-mono">0.0%</span>
-        </div>
-        <div class="mt-2 text-xs text-gray-400 flex justify-between">
-          <span>原始输入: <b id="stat-raw-tokens" class="text-gray-300 font-mono">0</b></span>
-          <span>优化输出: <b id="stat-opt-tokens" class="text-emerald-400 font-mono">0</b></span>
+        <div class="flex items-center space-x-3 text-[11px] text-[#666666]">
+          <span>status: <strong class="text-[#2979ff] font-normal">NORMAL</strong></span>
+          <span class="text-[#333333]">|</span>
+          <span id="gateway-version">v0.2.5</span>
         </div>
       </div>
 
-      <!-- Card 2 -->
-      <div class="glass p-5 rounded-2xl">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-semibold uppercase tracking-wider text-gray-400">真实折算节省资金</span>
-          <span class="p-2 rounded-xl bg-blue-500/10 text-blue-400">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          </span>
+      <!-- Compact Notice Rows -->
+      <div class="space-y-2 text-xs text-[#aaaaaa]" id="notices-container">
+        <div class="flex items-start space-x-4 border-b border-[#181818] pb-1.5">
+          <span class="text-[#555555] w-20 flex-shrink-0">just now</span>
+          <span class="text-[#dddddd] flex-1">gateway active. KV-cache live zone lock engaged; zero cross-turn prompt fragmentation detected.</span>
         </div>
-        <div class="mt-4 flex items-baseline justify-between">
-          <span id="stat-dollars-saved" class="text-3xl font-extrabold text-white font-mono">$0.0000</span>
-          <span class="text-xs font-medium text-gray-400">USD</span>
+        <div class="flex items-start space-x-4 border-b border-[#181818] pb-1.5">
+          <span class="text-[#555555] w-20 flex-shrink-0">12m ago</span>
+          <span class="text-[#999999] flex-1">CCR response handler intercepted 0 virtual tools; all downstream completions streamed smoothly.</span>
         </div>
-        <p class="mt-2 text-xs text-gray-500">按模型官方定价实时 SQL 聚合折算</p>
-      </div>
-
-      <!-- Card 3 -->
-      <div class="glass p-5 rounded-2xl glow-blue">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-semibold uppercase tracking-wider text-gray-400">实际缓存命中率 (Cache Hit)</span>
-          <span class="p-2 rounded-xl bg-blue-500/10 text-blue-400">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-          </span>
+        <div class="flex items-start space-x-4">
+          <span class="text-[#555555] w-20 flex-shrink-0">1h 05m ago</span>
+          <span class="text-[#888888] flex-1">offline rule carry-forward initialized with round-trip markdown markers preserved.</span>
         </div>
-        <div class="mt-4 flex items-baseline justify-between">
-          <span id="stat-cache-hit-percent" class="text-3xl font-extrabold text-blue-300 font-mono">0.00%</span>
-          <span id="stat-cached-tokens" class="text-xs font-bold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-md font-mono"> 0 Tokens</span>
-        </div>
-        <p class="mt-2 text-xs text-gray-400 flex justify-between items-center">
-          <span>命中: <b id="stat-cached-sub" class="text-blue-300 font-mono">0</b> / 总上下文: <b id="stat-context-sub" class="text-gray-200 font-mono">0</b></span>
-          <span>均耗时: <b id="stat-avg-latency" class="text-purple-300 font-mono">0.00</b>ms</span>
-        </p>
-      </div>
-
-      <!-- Card 4 (Memory & Storage) -->
-      <div class="glass p-5 rounded-2xl glow-purple">
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-semibold uppercase tracking-wider text-gray-400"> 持久化记忆指纹库</span>
-          <span class="p-2 rounded-xl bg-purple-500/10 text-purple-400">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
-          </span>
-        </div>
-        <div class="mt-4 flex items-baseline justify-between">
-          <span id="stat-memory-count" class="text-3xl font-extrabold text-purple-300 font-mono">0</span>
-          <span id="stat-memory-chars" class="text-xs font-semibold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-md font-mono">0 Chars</span>
-        </div>
-        <p class="mt-2 text-xs text-gray-500">跨会话内容指纹记忆与自进化知识库</p>
       </div>
     </section>
 
-    <!-- Real-Time Token Traffic & Savings Chart Section -->
-    <section class="glass rounded-2xl p-6 space-y-4">
-      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-3 border-b border-dark-border">
-        <div>
-          <h2 class="text-base font-bold text-white flex items-center space-x-2">
-            <svg class="w-5 h-5 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"/></svg>
-            <span>实时 Token 流量趋势与压缩节省监控</span>
-          </h2>
-          <p class="text-xs text-gray-400 mt-1">支持按具体会话（Session）查看每轮对话的 Token 优化趋势与节省曲线</p>
+    <!-- SECTION: Active Engine / Execution Progress Cards -->
+    <div class="space-y-3">
+      <!-- Card 1: Primary Gateway / Compression Stream -->
+      <div class="bg-[#111111] border border-[#222222] rounded-md p-4 space-y-3 font-mono">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#1a1a1a] pb-2">
+          <div class="flex items-center space-x-3">
+            <span class="inline-block w-2 h-2 rounded-full bg-[#ff5722]"></span>
+            <span class="text-xs font-semibold text-white tracking-wide">ctxguard-gateway-pro</span>
+            <span class="text-[11px] text-[#666666]">in progress</span>
+            <span class="text-sm font-bold text-white ml-2" id="kpi-step-count">turn <span id="stat-total-reqs">0</span></span>
+          </div>
+
+          <div class="flex items-center space-x-4 text-xs text-[#777777]">
+            <span id="gateway-uptime">up 2h 45m</span>
+            <!-- Progress Bar -->
+            <div class="w-36 bg-[#1a1a1a] h-1.5 rounded-full overflow-hidden flex">
+              <div id="kpi-progress-bar" class="bg-[#2979ff] h-full" style="width: 78%"></div>
+            </div>
+            <span class="text-[11px] text-[#555555]"><span id="stat-saved-percent">0%</span> optimized</span>
+          </div>
         </div>
 
-        <!-- Session Selector & Legend -->
-        <div class="flex flex-wrap items-center gap-3">
+        <!-- 6 Metrics Grid matching benchmark snapshot -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 pt-1">
+          <div>
+            <div class="text-[10px] text-[#666666] uppercase tracking-wider">SAVED RATIO · AVG</div>
+            <div class="text-lg font-bold text-white mt-0.5"><span id="stat-saved-percent-dup">0</span>% <span class="text-[10px] text-[#ff7043] font-normal">▲ 12.4%</span></div>
+          </div>
+          <div>
+            <div class="text-[10px] text-[#666666] uppercase tracking-wider">SAVED TOKENS</div>
+            <div class="text-lg font-bold text-white mt-0.5 tracking-tight" id="stat-saved-tokens">0</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-[#666666] uppercase tracking-wider">RAW TOKENS</div>
+            <div class="text-lg font-bold text-[#aaaaaa] mt-0.5 tracking-tight" id="stat-raw-tokens">0</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-[#666666] uppercase tracking-wider">OPTIMIZED TOKENS</div>
+            <div class="text-lg font-bold text-[#aaaaaa] mt-0.5 tracking-tight" id="stat-opt-tokens">0</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-[#666666] uppercase tracking-wider">EST. COST AVOIDED</div>
+            <div class="text-lg font-bold text-white mt-0.5 tracking-tight" id="stat-dollars-saved-dup">$0.00</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-[#666666] uppercase tracking-wider">TOTAL SESSIONS</div>
+            <div class="text-lg font-bold text-white mt-0.5 tracking-tight" id="stat-total-sessions">0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- SECTION: benchmarks & real-time telemetry -->
+    <section id="section-traffic" class="bg-[#111111] border border-[#222222] rounded-md p-4 space-y-4 font-mono">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#1c1c1c] pb-3">
+        <div class="flex items-center space-x-3">
+          <span class="text-xs font-semibold text-[#888888] lowercase">benchmarks & telemetry</span>
+          <span class="text-[10px] text-[#555555]">// real-time token compression curves</span>
+        </div>
+
+        <!-- Legend & Session Filter -->
+        <div class="flex flex-wrap items-center gap-4 text-xs">
+          <div class="flex items-center space-x-3 text-[11px]">
+            <span class="flex items-center space-x-1.5">
+              <span class="w-2.5 h-0.5 bg-[#ff5722] inline-block"></span>
+              <span class="text-[#aaaaaa]">raw tokens</span>
+            </span>
+            <span class="flex items-center space-x-1.5">
+              <span class="w-2.5 h-0.5 bg-[#2979ff] inline-block"></span>
+              <span class="text-[#aaaaaa]">optimized</span>
+            </span>
+          </div>
+
           <div class="flex items-center space-x-2">
-            <label for="chart-session-select" class="text-xs text-gray-400 font-medium">选择对话:</label>
-            <select id="chart-session-select" onchange="onChartSessionChange()" class="px-2.5 py-1.5 rounded-lg bg-dark-input border border-dark-border text-xs text-gray-200 focus:outline-none focus:border-brand-500 max-w-xs truncate font-medium">
-              <option value="__LATEST__">最新活跃对话 (当前聚焦)</option>
-              <option value="__ALL__">全部对话合并统计</option>
+            <span class="text-[11px] text-[#555555]">session:</span>
+            <select id="chart-session-select" onchange="onChartSessionChange()" class="bg-[#161616] text-[#cccccc] text-xs px-2 py-1 rounded border border-[#262626] focus:outline-none focus:border-[#444444]">
+              <option value="__LATEST__">All Sessions (Latest 30)</option>
             </select>
           </div>
-
-          <div class="flex items-center space-x-2.5 text-xs pl-2 border-l border-dark-border/50">
-            <span class="flex items-center space-x-1"><span class="w-2.5 h-2.5 rounded-full bg-red-400 inline-block"></span><span class="text-gray-300">Raw</span></span>
-            <span class="flex items-center space-x-1"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></span><span class="text-gray-300">Opt</span></span>
-            <span class="flex items-center space-x-1"><span class="w-2.5 h-2.5 rounded-full bg-blue-400 inline-block"></span><span class="text-gray-300">Cache</span></span>
-          </div>
         </div>
       </div>
-      <div class="relative h-64 w-full pt-2">
-        <canvas id="tokenTrafficChart"></canvas>
+
+      <!-- High Precision Minimal Line Chart Canvas -->
+      <div class="relative w-full h-72">
+        <canvas id="trafficChart"></canvas>
+      </div>
+
+      <!-- Quick Metrics Summary Under Chart -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-[#181818] text-xs text-[#777777]">
+        <div>peak raw: <strong id="chart-peak-raw" class="text-white font-normal">--</strong></div>
+        <div>peak saved: <strong id="chart-peak-saved" class="text-[#ff7043] font-normal">--</strong></div>
+        <div>median latency: <strong class="text-white font-normal">0.14ms</strong></div>
+        <div>cache stability: <strong class="text-[#2979ff] font-normal">100% (immutable)</strong></div>
       </div>
     </section>
-
-    <!-- SECTION 1: Classification & Multi-Dimension Filter Console -->
-    <section class="glass rounded-2xl p-6 space-y-5">
-      
-      <!-- Top Row: Section Header & View Mode Switcher -->
-      <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-dark-border">
-        <div>
-          <h2 class="text-base font-bold text-white flex items-center space-x-2">
-            <svg class="w-5 h-5 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-            <span>对话会话窗口分类与多维流控监控</span>
-          </h2>
-          <p class="text-xs text-gray-400 mt-1">按对话会话窗口（Session）、归属项目（Project）及调用模型（Model）实时聚合与分类</p>
-        </div>
-
-        <!-- View Mode Switcher -->
-        <div class="flex items-center bg-dark-input p-1 rounded-xl border border-dark-border space-x-1 text-xs self-start lg:self-auto">
-          <button id="btn-view-flat" onclick="setViewMode('flat')" class="px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 bg-brand-500/20 text-brand-300 border border-brand-500/30 shadow-sm">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
-            <span>单次请求明细流水</span>
-          </button>
-          <button id="btn-view-session" onclick="setViewMode('session')" class="px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 text-gray-400 hover:text-gray-200">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/></svg>
-            <span>按对话窗口聚合视图</span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Project & Session Matrix Dashboard: Collapsible Container (Collapsed by Default) -->
-      <details class="group p-4 rounded-xl bg-dark-card/40 border border-dark-border/80 transition">
+    <!-- Project & Session Matrix Dashboard: Collapsible Container (Collapsed by Default) -->
+      <details class="group p-4 rounded-xl bg-[#111111]/40 border border-[#222222]/80 transition">
         <summary class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 cursor-pointer select-none list-none">
           <div class="flex items-center space-x-2">
             <span class="p-1.5 rounded-lg bg-blue-500/10 text-blue-400">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
             </span>
             <span class="text-xs font-bold text-gray-200">各项目与对话会话窗口缓存命中看板 (Project & Session Matrix)</span>
-            <span class="text-[10px] text-gray-400 bg-dark-input px-2 py-0.5 rounded border border-dark-border">
+            <span class="text-[10px] text-gray-400 bg-dark-input px-2 py-0.5 rounded border border-[#222222]">
               点击展开/收起聚合详情
             </span>
           </div>
@@ -227,9 +263,9 @@ def get_dashboard_html() -> str:
           </div>
         </summary>
 
-        <div class="overflow-x-auto mt-4 pt-3 border-t border-dark-border/40">
+        <div class="overflow-x-auto mt-4 pt-3 border-t border-[#222222]/40">
           <table class="w-full text-left text-xs">
-            <thead class="text-gray-400 border-b border-dark-border/60 text-[11px] uppercase font-semibold">
+            <thead class="text-gray-400 border-b border-[#222222]/60 text-[11px] uppercase font-semibold">
               <tr>
                 <th class="pb-2 w-[34%]">项目 / 会话名称 (Session Title)</th>
                 <th class="pb-2 w-[8%]">轮次</th>
@@ -255,7 +291,7 @@ def get_dashboard_html() -> str:
             <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
             <span>按项目分类 (Project)</span>
           </label>
-          <select id="filter-project" onchange="applyFilters()" class="w-full bg-dark-input border border-dark-border rounded-xl px-3 py-2 text-xs font-mono text-emerald-300 focus:outline-none focus:border-brand-500 transition">
+          <select id="filter-project" onchange="applyFilters()" class="w-full bg-dark-input border border-[#222222] rounded-xl px-3 py-2 text-xs font-mono text-emerald-300 focus:outline-none focus:border-brand-500 transition">
             <option value="ALL">全部项目 (All Projects)</option>
           </select>
         </div>
@@ -266,7 +302,7 @@ def get_dashboard_html() -> str:
             <svg class="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
             <span>按模型分类 (Model)</span>
           </label>
-          <select id="filter-model" onchange="applyFilters()" class="w-full bg-dark-input border border-dark-border rounded-xl px-3 py-2 text-xs font-mono text-blue-300 focus:outline-none focus:border-brand-500 transition">
+          <select id="filter-model" onchange="applyFilters()" class="w-full bg-dark-input border border-[#222222] rounded-xl px-3 py-2 text-xs font-mono text-blue-300 focus:outline-none focus:border-brand-500 transition">
             <option value="ALL">全部模型 (All Models)</option>
           </select>
         </div>
@@ -278,14 +314,14 @@ def get_dashboard_html() -> str:
             <span>搜索会话 ID / 提问内容</span>
           </label>
           <div class="relative">
-            <input id="filter-search" oninput="applyFilters()" type="text" placeholder="输入会话 ID 或提问关键字过滤..." class="w-full bg-dark-input border border-dark-border rounded-xl pl-3 pr-8 py-2 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500 transition placeholder-gray-600">
+            <input id="filter-search" oninput="applyFilters()" type="text" placeholder="输入会话 ID 或提问关键字过滤..." class="w-full bg-dark-input border border-[#222222] rounded-xl pl-3 pr-8 py-2 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500 transition placeholder-gray-600">
             <button onclick="clearSearch()" class="absolute right-2.5 top-2.5 text-gray-500 hover:text-gray-300 text-xs"></button>
           </div>
         </div>
       </div>
 
       <!-- Quick Distribution Badges (Projects & Models) -->
-      <div class="pt-2 border-t border-dark-border/60 flex flex-wrap items-center gap-2 text-xs">
+      <div class="pt-2 border-t border-[#222222]/60 flex flex-wrap items-center gap-2 text-xs">
         <span class="text-gray-500 text-[11px]">快捷分布:</span>
         <div id="project-badges-container" class="flex flex-wrap gap-1.5 items-center"></div>
         <div class="h-3.5 w-px bg-dark-border mx-1"></div>
@@ -293,7 +329,7 @@ def get_dashboard_html() -> str:
       </div>
 
       <!-- Active Filter Reset Pill -->
-      <div id="active-filter-bar" class="hidden flex items-center justify-between p-2.5 rounded-xl bg-brand-500/10 border border-brand-500/20 text-xs text-brand-300">
+      <div id="active-filter-bar" class="hidden flex items-center justify-between p-2.5 rounded-xl bg-[#ff5722]/10 border border-brand-500/20 text-xs text-brand-300">
         <span id="active-filter-text">当前已筛选: </span>
         <button onclick="resetAllFilters()" class="text-[11px] underline hover:text-white font-semibold">重置所有筛选</button>
       </div>
@@ -305,7 +341,7 @@ def get_dashboard_html() -> str:
           <span>点击任意记录行可查看压缩详情与命中的算子</span>
         </div>
         <table class="w-full text-left text-xs">
-          <thead class="text-gray-400 font-semibold border-b border-dark-border/60 uppercase text-[11px]">
+          <thead class="text-gray-400 font-semibold border-b border-[#222222]/60 uppercase text-[11px]">
             <tr>
               <th class="pb-2.5">ID</th>
               <th class="pb-2.5">所属项目</th>
@@ -325,10 +361,10 @@ def get_dashboard_html() -> str:
         </table>
 
         <!-- Flat Table Pagination Bar -->
-        <div id="flat-pagination-bar" class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-dark-border/50 text-xs text-gray-400">
+        <div id="flat-pagination-bar" class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#222222]/50 text-xs text-gray-400">
           <div class="flex items-center space-x-2">
             <span>每页显示</span>
-            <select id="flat-page-size" onchange="changeFlatPageSize(this.value)" class="bg-dark-input border border-dark-border rounded-lg px-2.5 py-1 text-xs text-gray-200 focus:outline-none focus:border-brand-500">
+            <select id="flat-page-size" onchange="changeFlatPageSize(this.value)" class="bg-dark-input border border-[#222222] rounded-lg px-2.5 py-1 text-xs text-gray-200 focus:outline-none focus:border-brand-500">
               <option value="10" selected>10 条</option>
               <option value="20">20 条</option>
               <option value="50">50 条</option>
@@ -338,12 +374,12 @@ def get_dashboard_html() -> str:
           </div>
 
           <div class="flex items-center space-x-1.5 select-none">
-            <button id="btn-flat-prev" onclick="changeFlatPage(-1)" class="px-3 py-1 rounded-lg border border-dark-border bg-dark-card hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center space-x-1 text-gray-300 font-medium">
+            <button id="btn-flat-prev" onclick="changeFlatPage(-1)" class="px-3 py-1 rounded-lg border border-[#222222] bg-[#111111] hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center space-x-1 text-gray-300 font-medium">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
               <span>上一页</span>
             </button>
             <div id="flat-page-numbers" class="flex items-center space-x-1"></div>
-            <button id="btn-flat-next" onclick="changeFlatPage(1)" class="px-3 py-1 rounded-lg border border-dark-border bg-dark-card hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center space-x-1 text-gray-300 font-medium">
+            <button id="btn-flat-next" onclick="changeFlatPage(1)" class="px-3 py-1 rounded-lg border border-[#222222] bg-[#111111] hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center space-x-1 text-gray-300 font-medium">
               <span>下一页</span>
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </button>
@@ -365,8 +401,8 @@ def get_dashboard_html() -> str:
     </section>
 
     <!-- SECTION 2:  记忆中枢与自进化规则大盘 (Dedicated Memory Hub) -->
-    <section class="glass rounded-2xl p-6 space-y-6">
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-dark-border">
+    <section class="bg-[#111111] border border-[#222222] rounded-md p-4 space-y-4 font-mono">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-[#222222]">
         <div>
           <h2 class="text-base font-bold text-white flex items-center space-x-2">
             <span class="p-1.5 rounded-lg bg-purple-500/20 text-purple-400">
@@ -396,10 +432,10 @@ def get_dashboard_html() -> str:
             <span class="text-[11px] text-gray-400 font-mono">已持久化: <b id="memory-fp-count" class="text-emerald-400">0</b> 个块</span>
           </div>
 
-          <div class="bg-dark-input rounded-xl border border-dark-border overflow-hidden">
+          <div class="bg-dark-input rounded-xl border border-[#222222] overflow-hidden">
             <div class="max-h-64 overflow-y-auto divide-y divide-dark-border/40 font-mono text-xs">
               <table class="w-full text-left">
-                <thead class="text-gray-500 uppercase text-[10px] bg-dark-card/60 sticky top-0">
+                <thead class="text-gray-500 uppercase text-[10px] bg-[#111111]/60 sticky top-0">
                   <tr>
                     <th class="p-2.5">指纹哈希 (Hash ID)</th>
                     <th class="p-2.5">长度</th>
@@ -429,15 +465,15 @@ def get_dashboard_html() -> str:
             <div class="p-4 text-center text-gray-500 text-xs">正在加载经验规则库...</div>
           </div>
 
-          <div id="learn-result" class="hidden p-3 rounded-xl bg-dark-input font-mono text-[11px] text-gray-300 border border-dark-border max-h-32 overflow-y-auto"></div>
+          <div id="learn-result" class="hidden p-3 rounded-xl bg-dark-input font-mono text-[11px] text-gray-300 border border-[#222222] max-h-32 overflow-y-auto"></div>
         </div>
 
       </div>
     </section>
 
     <!-- SECTION 3:  个人记忆知识图谱中枢 (Personal Knowledge Graph - SQLiteGraphStore) -->
-    <section class="glass rounded-2xl p-6 space-y-6">
-      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-dark-border">
+    <section class="bg-[#111111] border border-[#222222] rounded-md p-4 space-y-4 font-mono">
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-[#222222]">
         <div>
           <h2 class="text-base font-bold text-white flex items-center space-x-2">
             <span class="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400">
@@ -452,7 +488,7 @@ def get_dashboard_html() -> str:
           <span class="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-mono">
             实体: <b id="kg-total-entities">0</b> | 关系边: <b id="kg-total-relations">0</b>
           </span>
-          <button onclick="refreshGraphStats()" class="px-3 py-1.5 rounded-lg bg-dark-card border border-dark-border text-xs font-semibold hover:bg-gray-800 transition flex items-center space-x-1.5">
+          <button onclick="refreshGraphStats()" class="px-3 py-1.5 rounded-lg bg-[#111111] border border-[#222222] text-xs font-semibold hover:bg-gray-800 transition flex items-center space-x-1.5">
             <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
             <span>刷新图谱</span>
           </button>
@@ -460,7 +496,7 @@ def get_dashboard_html() -> str:
       </div>
 
       <!-- Interactive Force-Directed Topology Network Graph Canvas -->
-      <div class="p-4 rounded-xl bg-dark-input/80 border border-dark-border space-y-3">
+      <div class="p-4 rounded-xl bg-dark-input/80 border border-[#222222] space-y-3">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div class="flex items-center space-x-2">
             <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -468,19 +504,19 @@ def get_dashboard_html() -> str:
           </div>
           <div class="flex items-center space-x-3 text-[11px]">
             <span class="text-gray-400"> 支持鼠标拖拽节点、悬停查看关系、点击自动聚焦 2-hop 子图</span>
-            <button onclick="resetGraphPhysics()" class="px-2.5 py-1 rounded bg-dark-card border border-dark-border hover:bg-gray-800 text-gray-300 flex items-center space-x-1">
+            <button onclick="resetGraphPhysics()" class="px-2.5 py-1 rounded bg-[#111111] border border-[#222222] hover:bg-gray-800 text-gray-300 flex items-center space-x-1">
               <svg class="w-3 h-3 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
               <span>重置拓扑布局</span>
             </button>
           </div>
         </div>
 
-        <div class="relative w-full h-[380px] bg-dark-bg/95 rounded-xl overflow-hidden border border-dark-border/60">
+        <div class="relative w-full h-[380px] bg-[#0a0a0a]/95 rounded-xl overflow-hidden border border-[#222222]/60">
           <canvas id="kg-network-canvas" class="w-full h-full cursor-grab active:cursor-grabbing block"></canvas>
           <div id="kg-canvas-tooltip" class="hidden absolute pointer-events-none px-3 py-2 rounded-xl bg-gray-950/95 border border-emerald-500/40 text-xs font-mono text-gray-200 shadow-2xl z-20 space-y-1"></div>
           
           <!-- Legend -->
-          <div class="absolute bottom-2.5 left-3 flex flex-wrap gap-2 text-[10px] font-mono pointer-events-none bg-dark-card/85 backdrop-blur px-3 py-1.5 rounded-lg border border-dark-border/60">
+          <div class="absolute bottom-2.5 left-3 flex flex-wrap gap-2 text-[10px] font-mono pointer-events-none bg-[#111111]/85 backdrop-blur px-3 py-1.5 rounded-lg border border-[#222222]/60">
             <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-purple-400"></span>人物 (Person)</span>
             <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>项目 (Project)</span>
             <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-blue-400"></span>技术 (Tech)</span>
@@ -495,21 +531,21 @@ def get_dashboard_html() -> str:
         
         <!-- Left: Interactive BFS Subgraph Query Explorer (2 cols) -->
         <div class="lg:col-span-2 space-y-4">
-          <div class="p-4 rounded-xl bg-dark-input/80 border border-dark-border space-y-3">
+          <div class="p-4 rounded-xl bg-dark-input/80 border border-[#222222] space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-2">
               <label class="text-xs font-bold text-gray-300 flex items-center space-x-1.5">
                 <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                 <span>BFS 2-hop 关系子图检索体验台</span>
               </label>
               <div class="flex gap-1.5">
-                <button onclick="quickQueryGraph('User')" class="px-2 py-0.5 rounded bg-dark-card text-[11px] text-gray-300 border border-dark-border hover:bg-gray-800">查 User</button>
-                <button onclick="quickQueryGraph('pnpm')" class="px-2 py-0.5 rounded bg-dark-card text-[11px] text-gray-300 border border-dark-border hover:bg-gray-800">查 pnpm</button>
-                <button onclick="quickQueryGraph('Pi-Web')" class="px-2 py-0.5 rounded bg-dark-card text-[11px] text-gray-300 border border-dark-border hover:bg-gray-800">查 Pi-Web</button>
+                <button onclick="quickQueryGraph('User')" class="px-2 py-0.5 rounded bg-[#111111] text-[11px] text-gray-300 border border-[#222222] hover:bg-gray-800">查 User</button>
+                <button onclick="quickQueryGraph('pnpm')" class="px-2 py-0.5 rounded bg-[#111111] text-[11px] text-gray-300 border border-[#222222] hover:bg-gray-800">查 pnpm</button>
+                <button onclick="quickQueryGraph('Pi-Web')" class="px-2 py-0.5 rounded bg-[#111111] text-[11px] text-gray-300 border border-[#222222] hover:bg-gray-800">查 Pi-Web</button>
               </div>
             </div>
 
             <div class="flex gap-2">
-              <input id="kg-search-input" onkeydown="if(event.key==='Enter') searchSubgraph()" type="text" placeholder="输入实体名或关键词 (如: User, pnpm, macOS, Pi-Web)..." class="flex-1 bg-dark-bg border border-dark-border rounded-xl px-3 py-2 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500 transition">
+              <input id="kg-search-input" onkeydown="if(event.key==='Enter') searchSubgraph()" type="text" placeholder="输入实体名或关键词 (如: User, pnpm, macOS, Pi-Web)..." class="flex-1 bg-[#0a0a0a] border border-[#222222] rounded-xl px-3 py-2 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500 transition">
               <button onclick="searchSubgraph()" class="px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-xs font-semibold text-emerald-300 hover:bg-emerald-500/30 transition flex items-center space-x-1.5 shadow-sm shrink-0">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
                 <span>检索 2-hop 子图</span>
@@ -517,20 +553,20 @@ def get_dashboard_html() -> str:
             </div>
 
             <!-- Subgraph Visual Result Box -->
-            <div id="kg-query-result" class="p-3.5 rounded-xl bg-dark-bg/90 border border-dark-border min-h-[110px] font-mono text-xs space-y-2">
+            <div id="kg-query-result" class="p-3.5 rounded-xl bg-[#0a0a0a]/90 border border-[#222222] min-h-[110px] font-mono text-xs space-y-2">
               <div class="text-gray-500 text-center py-6">在上方输入实体或点击快捷标签，体验 BFS 多跳关联拓扑检索与 Prompt 注入预览</div>
             </div>
           </div>
 
           <!-- Entity List Table -->
-          <div class="bg-dark-input rounded-xl border border-dark-border overflow-hidden">
-            <div class="p-3 bg-dark-card/60 border-b border-dark-border flex items-center justify-between">
+          <div class="bg-dark-input rounded-xl border border-[#222222] overflow-hidden">
+            <div class="p-3 bg-[#111111]/60 border-b border-[#222222] flex items-center justify-between">
               <span class="text-xs font-bold text-gray-300">已收录的个人记忆实体清单</span>
               <div id="kg-type-badges" class="flex flex-wrap gap-1"></div>
             </div>
             <div class="max-h-56 overflow-y-auto">
               <table class="w-full text-left text-xs font-mono">
-                <thead class="text-gray-500 uppercase text-[10px] bg-dark-card/40 sticky top-0">
+                <thead class="text-gray-500 uppercase text-[10px] bg-[#111111]/40 sticky top-0">
                   <tr>
                     <th class="p-2.5">实体名称</th>
                     <th class="p-2.5">类别</th>
@@ -548,20 +584,20 @@ def get_dashboard_html() -> str:
 
         <!-- Right: Manual Memory & Relation Quick-Add Form (1 col) -->
         <div class="space-y-4">
-          <div class="p-4 rounded-xl bg-dark-input/80 border border-dark-border space-y-3 text-xs">
-            <div class="font-bold text-gray-200 flex items-center space-x-1.5 pb-2 border-b border-dark-border/60">
+          <div class="p-4 rounded-xl bg-dark-input/80 border border-[#222222] space-y-3 text-xs">
+            <div class="font-bold text-gray-200 flex items-center space-x-1.5 pb-2 border-b border-[#222222]/60">
               <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
               <span>手动添加个人偏好与关系</span>
             </div>
 
             <div class="space-y-1">
               <label class="text-[11px] text-gray-400">实体名称 (Name):</label>
-              <input id="kg-form-name" type="text" placeholder="例如: Bun, PostgreSQL, 偏好中文" class="w-full bg-dark-bg border border-dark-border rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500">
+              <input id="kg-form-name" type="text" placeholder="例如: Bun, PostgreSQL, 偏好中文" class="w-full bg-[#0a0a0a] border border-[#222222] rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500">
             </div>
 
             <div class="space-y-1">
               <label class="text-[11px] text-gray-400">实体类型 (Entity Type):</label>
-              <select id="kg-form-type" class="w-full bg-dark-bg border border-dark-border rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500">
+              <select id="kg-form-type" class="w-full bg-[#0a0a0a] border border-[#222222] rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500">
                 <option value="preference">偏好 (preference)</option>
                 <option value="technology">技术栈 (technology)</option>
                 <option value="environment">开发环境 (environment)</option>
@@ -573,12 +609,12 @@ def get_dashboard_html() -> str:
 
             <div class="space-y-1">
               <label class="text-[11px] text-gray-400">描述信息 (Description):</label>
-              <input id="kg-form-desc" type="text" placeholder="简短描述，例如: 极速打包运行环境" class="w-full bg-dark-bg border border-dark-border rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500">
+              <input id="kg-form-desc" type="text" placeholder="简短描述，例如: 极速打包运行环境" class="w-full bg-[#0a0a0a] border border-[#222222] rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500">
             </div>
 
             <div class="space-y-1">
               <label class="text-[11px] text-gray-400">与 User 建立关系 (Relation to User):</label>
-              <select id="kg-form-rel" class="w-full bg-dark-bg border border-dark-border rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500">
+              <select id="kg-form-rel" class="w-full bg-[#0a0a0a] border border-[#222222] rounded-lg px-2.5 py-1.5 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500">
                 <option value="prefers">prefers (偏好使用)</option>
                 <option value="operates_on">operates_on (运行环境)</option>
                 <option value="develops">develops (开发/维护)</option>
@@ -592,7 +628,7 @@ def get_dashboard_html() -> str:
             </button>
           </div>
 
-          <div class="p-3.5 rounded-xl bg-dark-input/40 border border-dark-border text-gray-400 text-[11px] space-y-1.5">
+          <div class="p-3.5 rounded-xl bg-dark-input/40 border border-[#222222] text-gray-400 text-[11px] space-y-1.5">
             <div class="text-gray-300 font-semibold flex items-center space-x-1">
               <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
               <span>自动学习说明：</span>
@@ -610,18 +646,18 @@ def get_dashboard_html() -> str:
       <!-- Left Column: Interactive Compression Tester (2 Cols) -->
       <div class="lg:col-span-2 space-y-6">
         <div class="glass rounded-2xl p-6">
-          <div class="flex items-center justify-between pb-4 border-b border-dark-border">
+          <div class="flex items-center justify-between pb-4 border-b border-[#222222]">
             <div>
               <h2 class="text-base font-bold text-white flex items-center space-x-2">
-                <svg class="w-4 h-4 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
+                <svg class="w-4 h-4 text-[#ff5722]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/></svg>
                 <span>后端实时真实流水线测试工作台</span>
               </h2>
               <p class="text-xs text-gray-400 mt-0.5">调用后端真实 Python `CompressionPipeline.process()` 算子</p>
             </div>
             <div class="flex items-center space-x-2">
-              <button onclick="loadSample('code')" class="px-2.5 py-1 text-xs rounded-md bg-dark-card border border-dark-border hover:bg-gray-800 text-gray-300">代码样例</button>
-              <button onclick="loadSample('json')" class="px-2.5 py-1 text-xs rounded-md bg-dark-card border border-dark-border hover:bg-gray-800 text-gray-300">JSON 样例</button>
-              <button onclick="loadSample('log')" class="px-2.5 py-1 text-xs rounded-md bg-dark-card border border-dark-border hover:bg-gray-800 text-gray-300">日志样例</button>
+              <button onclick="loadSample('code')" class="px-2.5 py-1 text-xs rounded-md bg-[#111111] border border-[#222222] hover:bg-gray-800 text-gray-300">代码样例</button>
+              <button onclick="loadSample('json')" class="px-2.5 py-1 text-xs rounded-md bg-[#111111] border border-[#222222] hover:bg-gray-800 text-gray-300">JSON 样例</button>
+              <button onclick="loadSample('log')" class="px-2.5 py-1 text-xs rounded-md bg-[#111111] border border-[#222222] hover:bg-gray-800 text-gray-300">日志样例</button>
             </div>
           </div>
 
@@ -631,18 +667,18 @@ def get_dashboard_html() -> str:
                 <span>原始输入 (Raw Input)</span>
                 <span id="raw-token-badge" class="text-gray-400 font-mono">0 Tokens</span>
               </div>
-              <textarea id="test-input" rows="8" class="w-full rounded-xl bg-dark-input border border-dark-border p-3 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500 transition resize-none placeholder-gray-600" placeholder="在此粘贴测试文本、JSON 数组或报错日志..."></textarea>
+              <textarea id="test-input" rows="8" class="w-full rounded-xl bg-dark-input border border-[#222222] p-3 text-xs font-mono text-gray-200 focus:outline-none focus:border-brand-500 transition resize-none placeholder-gray-600" placeholder="在此粘贴测试文本、JSON 数组或报错日志..."></textarea>
             </div>
             <div>
               <div class="flex justify-between items-center text-xs font-semibold text-gray-400 mb-1.5">
                 <span>优化输出 (Optimized Payload)</span>
-                <span id="opt-token-badge" class="text-brand-400 font-mono">0 Tokens (0%)</span>
+                <span id="opt-token-badge" class="text-[#ff5722] font-mono">0 Tokens (0%)</span>
               </div>
-              <textarea id="test-output" rows="8" readonly class="w-full rounded-xl bg-dark-input/60 border border-dark-border p-3 text-xs font-mono text-emerald-300 focus:outline-none resize-none placeholder-gray-600" placeholder="点击下方按钮调用后端真实流水线处理..."></textarea>
+              <textarea id="test-output" rows="8" readonly class="w-full rounded-xl bg-dark-input/60 border border-[#222222] p-3 text-xs font-mono text-emerald-300 focus:outline-none resize-none placeholder-gray-600" placeholder="点击下方按钮调用后端真实流水线处理..."></textarea>
             </div>
           </div>
 
-          <div class="mt-4 flex items-center justify-between pt-3 border-t border-dark-border">
+          <div class="mt-4 flex items-center justify-between pt-3 border-t border-[#222222]">
             <div id="test-compressors-tags" class="flex flex-wrap gap-1.5 text-xs text-gray-400 items-center">
               <span>后端激活算子:</span>
               <span class="text-gray-500 italic text-xs">等待执行...</span>
@@ -660,7 +696,7 @@ def get_dashboard_html() -> str:
         
         <!-- One-Click Client Integration Guide -->
         <div class="glass rounded-2xl p-6">
-          <h2 class="text-base font-bold text-white flex items-center space-x-2 pb-3 border-b border-dark-border">
+          <h2 class="text-base font-bold text-white flex items-center space-x-2 pb-3 border-b border-[#222222]">
             <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
             <span>Agent 客户端接入配置</span>
           </h2>
@@ -668,7 +704,7 @@ def get_dashboard_html() -> str:
           <div class="mt-4 space-y-3.5 text-xs">
             <div>
               <span class="font-semibold text-gray-300 block mb-1">Pi Agent (直接在终端运行):</span>
-              <div class="p-2.5 rounded-lg bg-dark-input font-mono text-emerald-400 border border-dark-border flex justify-between items-center">
+              <div class="p-2.5 rounded-lg bg-dark-input font-mono text-emerald-400 border border-[#222222] flex justify-between items-center">
                 <span>pi "你的问题"</span>
                 <span class="text-[10px] text-gray-400">自动走 CtxGuard</span>
               </div>
@@ -676,15 +712,15 @@ def get_dashboard_html() -> str:
 
             <div>
               <span class="font-semibold text-gray-300 block mb-1">Cursor / Cline / Windsurf:</span>
-              <div class="p-2.5 rounded-lg bg-dark-input font-mono text-emerald-400 border border-dark-border flex justify-between items-center">
+              <div class="p-2.5 rounded-lg bg-dark-input font-mono text-emerald-400 border border-[#222222] flex justify-between items-center">
                 <span>http://127.0.0.1:8787/v1</span>
-                <button onclick="copyToClipboard('http://127.0.0.1:8787/v1')" class="text-gray-400 hover:text-white text-[10px] px-2 py-0.5 rounded bg-dark-card">复制</button>
+                <button onclick="copyToClipboard('http://127.0.0.1:8787/v1')" class="text-gray-400 hover:text-white text-[10px] px-2 py-0.5 rounded bg-[#111111]">复制</button>
               </div>
             </div>
 
             <div>
               <span class="font-semibold text-gray-300 block mb-1">OpenAI SDK (Python):</span>
-              <pre class="p-2.5 rounded-lg bg-dark-input text-gray-300 border border-dark-border overflow-x-auto font-mono text-[11px]">client = OpenAI(base_url="http://127.0.0.1:8787/v1")</pre>
+              <pre class="p-2.5 rounded-lg bg-dark-input text-gray-300 border border-[#222222] overflow-x-auto font-mono text-[11px]">client = OpenAI(base_url="http://127.0.0.1:8787/v1")</pre>
             </div>
           </div>
         </div>
@@ -696,10 +732,10 @@ def get_dashboard_html() -> str:
 
   <!-- Request Details Modal / Drawer -->
   <div id="detail-modal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
-    <div class="glass bg-dark-card border border-dark-border rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl relative">
-      <div class="flex items-center justify-between border-b border-dark-border pb-3">
+    <div class="glass bg-[#111111] border border-[#222222] rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl relative">
+      <div class="flex items-center justify-between border-b border-[#222222] pb-3">
         <div class="flex items-center space-x-2">
-          <span id="modal-req-id" class="px-2 py-0.5 rounded bg-brand-500/20 text-brand-400 font-mono font-bold text-xs">#0</span>
+          <span id="modal-req-id" class="px-2 py-0.5 rounded bg-[#ff5722]/20 text-[#ff5722] font-mono font-bold text-xs">#0</span>
           <h3 class="text-sm font-bold text-white">对话会话与压缩详情</h3>
         </div>
         <button onclick="closeModal()" class="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800">
@@ -708,19 +744,19 @@ def get_dashboard_html() -> str:
       </div>
 
       <div class="grid grid-cols-2 gap-3 text-xs">
-        <div class="p-3 rounded-xl bg-dark-input border border-dark-border space-y-1">
+        <div class="p-3 rounded-xl bg-dark-input border border-[#222222] space-y-1">
           <span class="text-gray-400 block text-[11px]">所属项目 (Project)</span>
           <span id="modal-project" class="font-bold text-emerald-400 font-mono text-sm block truncate">-</span>
         </div>
-        <div class="p-3 rounded-xl bg-dark-input border border-dark-border space-y-1">
+        <div class="p-3 rounded-xl bg-dark-input border border-[#222222] space-y-1">
           <span class="text-gray-400 block text-[11px]">会话 Session ID</span>
           <span id="modal-session" class="font-bold text-purple-300 font-mono text-sm block truncate">-</span>
         </div>
-        <div class="p-3 rounded-xl bg-dark-input border border-dark-border space-y-1">
+        <div class="p-3 rounded-xl bg-dark-input border border-[#222222] space-y-1">
           <span class="text-gray-400 block text-[11px]">调用模型 (Model)</span>
           <span id="modal-model" class="font-bold text-blue-400 font-mono block">-</span>
         </div>
-        <div class="p-3 rounded-xl bg-dark-input border border-dark-border space-y-1">
+        <div class="p-3 rounded-xl bg-dark-input border border-[#222222] space-y-1">
           <span class="text-gray-400 block text-[11px]">处理时延 (Latency)</span>
           <span id="modal-latency" class="font-bold text-amber-400 font-mono block">-</span>
         </div>
@@ -728,29 +764,29 @@ def get_dashboard_html() -> str:
 
       <div class="space-y-1.5 text-xs">
         <span class="text-gray-400 font-semibold block">对话提问内容摘要 (User Prompt Preview):</span>
-        <div id="modal-prompt" class="p-3 rounded-xl bg-dark-input border border-dark-border font-mono text-gray-200 text-xs max-h-32 overflow-y-auto whitespace-pre-wrap">-</div>
+        <div id="modal-prompt" class="p-3 rounded-xl bg-dark-input border border-[#222222] font-mono text-gray-200 text-xs max-h-32 overflow-y-auto whitespace-pre-wrap">-</div>
       </div>
 
       <div class="space-y-1.5 text-xs">
         <span class="text-gray-400 font-semibold block">后端命中的压缩算子 (Applied Operators):</span>
-        <div id="modal-compressors" class="flex flex-wrap gap-1.5 p-2.5 rounded-xl bg-dark-input border border-dark-border"></div>
+        <div id="modal-compressors" class="flex flex-wrap gap-1.5 p-2.5 rounded-xl bg-dark-input border border-[#222222]"></div>
       </div>
 
       <div class="space-y-1.5 text-xs">
         <span class="text-gray-400 font-semibold block"> 缓存命中状态 (Cache Hit Status):</span>
-        <div id="modal-cache-status" class="p-3 rounded-xl bg-dark-input border border-dark-border text-xs flex items-center justify-between font-mono">
+        <div id="modal-cache-status" class="p-3 rounded-xl bg-dark-input border border-[#222222] text-xs flex items-center justify-between font-mono">
           <span id="modal-cache-text" class="text-gray-300">-</span>
-          <span id="modal-cache-badge" class="px-2 py-0.5 rounded text-[11px] font-bold bg-dark-card border border-dark-border">-</span>
+          <span id="modal-cache-badge" class="px-2 py-0.5 rounded text-[11px] font-bold bg-[#111111] border border-[#222222]">-</span>
         </div>
       </div>
 
       <div class="flex justify-end pt-2">
-        <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-dark-card border border-dark-border hover:bg-gray-800 text-xs font-semibold text-gray-300">关闭</button>
+        <button onclick="closeModal()" class="px-4 py-2 rounded-xl bg-[#111111] border border-[#222222] hover:bg-gray-800 text-xs font-semibold text-gray-300">关闭</button>
       </div>
     </div>
   </div>
 
-  <footer class="border-t border-dark-border/40 py-6 mt-12 text-center text-xs text-gray-500">
+  <footer class="border-t border-[#222222]/40 py-6 mt-12 text-center text-xs text-gray-500">
     <p>CtxGuard Context Optimization & Memory Gateway • 零重型依赖 • 毫秒级极速优化 • SQLite WAL 存储驱动</p>
   </footer>
 
@@ -844,12 +880,12 @@ export class UserController {
       const viewFlat = document.getElementById('view-flat-container');
 
       if (mode === 'session') {
-        if (btnSession) btnSession.className = 'px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 bg-brand-500/20 text-brand-300 border border-brand-500/30 shadow-sm';
+        if (btnSession) btnSession.className = 'px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 bg-[#ff5722]/20 text-brand-300 border border-brand-500/30 shadow-sm';
         if (btnFlat) btnFlat.className = 'px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 text-gray-400 hover:text-gray-200';
         if (viewSession) viewSession.classList.remove('hidden');
         if (viewFlat) viewFlat.classList.add('hidden');
       } else {
-        if (btnFlat) btnFlat.className = 'px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 bg-brand-500/20 text-brand-300 border border-brand-500/30 shadow-sm';
+        if (btnFlat) btnFlat.className = 'px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 bg-[#ff5722]/20 text-brand-300 border border-brand-500/30 shadow-sm';
         if (btnSession) btnSession.className = 'px-3.5 py-1.5 rounded-lg font-semibold transition flex items-center space-x-1.5 text-gray-400 hover:text-gray-200';
         if (viewFlat) viewFlat.classList.remove('hidden');
         if (viewSession) viewSession.classList.add('hidden');
@@ -1002,12 +1038,12 @@ export class UserController {
 
         // Level 1: Project Parent Row
         rowsHtml += `
-          <tr class="hover:bg-dark-card/70 transition cursor-pointer ${isCurrent ? 'bg-brand-500/15' : 'bg-dark-card/30'}" onclick="toggleProjectExpand('${escapeHtml(pName)}')">
+          <tr class="hover:bg-[#111111]/70 transition cursor-pointer ${isCurrent ? 'bg-[#ff5722]/15' : 'bg-[#111111]/30'}" onclick="toggleProjectExpand('${escapeHtml(pName)}')">
             <td class="py-2.5 text-emerald-400 font-bold flex items-center space-x-2">
-              <span class="text-gray-400 text-xs select-none transform transition-transform ${isExpanded ? 'rotate-90 text-brand-400' : ''}"></span>
+              <span class="text-gray-400 text-xs select-none transform transition-transform ${isExpanded ? 'rotate-90 text-[#ff5722]' : ''}"></span>
               <span class="w-2.5 h-2.5 rounded-full ${isCurrent ? 'bg-brand-400 ring-2 ring-brand-400/40' : 'bg-emerald-400'}"></span>
               <span class="font-sans text-gray-100 text-xs font-semibold">${escapeHtml(pName)}</span>
-              <span class="px-1.5 py-0.5 rounded text-[10px] bg-dark-input border border-dark-border text-gray-400 font-normal">
+              <span class="px-1.5 py-0.5 rounded text-[10px] bg-dark-input border border-[#222222] text-gray-400 font-normal">
                 ${sessionCount} 个对话
               </span>
             </td>
@@ -1024,8 +1060,8 @@ export class UserController {
             <td class="py-2.5 text-right" onclick="event.stopPropagation()">
               <button onclick="focusProject('${escapeHtml(pName)}')" class="px-2.5 py-1 rounded text-[11px] font-sans font-medium transition ${
                 isCurrent 
-                  ? 'bg-brand-500 text-white font-bold shadow-sm' 
-                  : 'bg-dark-input hover:bg-dark-border text-gray-300 border border-dark-border'
+                  ? 'bg-[#ff5722] text-white font-bold shadow-sm' 
+                  : 'bg-dark-input hover:bg-dark-border text-gray-300 border border-[#222222]'
               }">
                 ${isCurrent ? ' 已聚焦' : '聚焦项目'}
               </button>
@@ -1060,7 +1096,7 @@ export class UserController {
               const sCombined = s.combined_saved_percent || sSavedRate;
 
               rowsHtml += `
-                <tr class="hover:bg-dark-card/90 transition bg-dark-input/25 border-l-2 ${isSessFiltered ? 'border-brand-500 bg-brand-500/10' : 'border-dark-border/50'}">
+                <tr class="hover:bg-[#111111]/90 transition bg-dark-input/25 border-l-2 ${isSessFiltered ? 'border-brand-500 bg-[#ff5722]/10' : 'border-[#222222]/50'}">
                   <td class="py-2.5 pl-7 pr-2">
                     <div class="flex items-start space-x-2">
                       <span class="text-gray-600 text-xs mt-0.5">└─</span>
@@ -1083,7 +1119,7 @@ export class UserController {
                   <td class="py-2.5 font-mono text-xs">${sHitBadge}</td>
                   <td class="py-2.5 font-mono text-xs">
                     <div class="flex flex-col">
-                      <span class="text-brand-400 font-medium">${sSavedRate}%</span>
+                      <span class="text-[#ff5722] font-medium">${sSavedRate}%</span>
                       <span class="text-[10px] text-emerald-400/80 font-mono" title="本地压缩 + 云端缓存叠加总节省率">总省: ${sCombined}%</span>
                     </div>
                   </td>
@@ -1091,7 +1127,7 @@ export class UserController {
                     <button onclick="focusSession('${escapeHtml(s.session_id)}', '${escapeHtml(pName)}')" class="px-2 py-0.5 rounded text-[10px] font-sans transition ${
                       isSessFiltered 
                         ? 'bg-blue-600 text-white font-bold shadow-sm' 
-                        : 'bg-dark-card hover:bg-dark-border text-gray-300 border border-dark-border'
+                        : 'bg-[#111111] hover:bg-dark-border text-gray-300 border border-[#222222]'
                     }">
                       ${isSessFiltered ? ' 已聚焦' : ' 聚焦对话'}
                     </button>
@@ -1190,38 +1226,41 @@ export class UserController {
             labels: labels.length > 0 ? labels : ['Ready'],
             datasets: [
               {
-                label: '原始 Token (Raw)',
+                label: 'raw tokens',
                 data: rawTokens.length > 0 ? rawTokens : [0],
-                borderColor: '#f87171',
-                backgroundColor: 'rgba(248, 113, 113, 0.1)',
-                borderWidth: 2,
-                tension: 0.35,
-                fill: true,
-                pointRadius: 3,
-                pointHoverRadius: 5
-              },
-              {
-                label: '优化后 Token (Optimized)',
-                data: optTokens.length > 0 ? optTokens : [0],
-                borderColor: '#34d399',
-                backgroundColor: 'rgba(52, 211, 153, 0.15)',
-                borderWidth: 2,
-                tension: 0.35,
-                fill: true,
-                pointRadius: 3,
-                pointHoverRadius: 5
-              },
-              {
-                label: '缓存命中 Token (Cache Hit)',
-                data: cachedTokens.length > 0 ? cachedTokens : [0],
-                borderColor: '#60a5fa',
-                backgroundColor: 'rgba(96, 165, 250, 0.1)',
-                borderWidth: 2,
-                borderDash: [5, 5],
-                tension: 0.35,
+                borderColor: '#ff5722',
+                backgroundColor: 'transparent',
+                borderWidth: 1.5,
+                tension: 0.15,
                 fill: false,
-                pointRadius: 3,
-                pointHoverRadius: 5
+                pointRadius: 2.5,
+                pointBackgroundColor: '#ff5722',
+                pointHoverRadius: 4
+              },
+              {
+                label: 'optimized',
+                data: optTokens.length > 0 ? optTokens : [0],
+                borderColor: '#2979ff',
+                backgroundColor: 'transparent',
+                borderWidth: 1.5,
+                tension: 0.15,
+                fill: false,
+                pointRadius: 2.5,
+                pointBackgroundColor: '#2979ff',
+                pointHoverRadius: 4
+              },
+              {
+                label: 'cache hit',
+                data: cachedTokens.length > 0 ? cachedTokens : [0],
+                borderColor: '#666666',
+                backgroundColor: 'transparent',
+                borderWidth: 1,
+                borderDash: [3, 3],
+                tension: 0.15,
+                fill: false,
+                pointRadius: 2,
+                pointBackgroundColor: '#666666',
+                pointHoverRadius: 4
               }
             ]
           },
@@ -1234,29 +1273,32 @@ export class UserController {
             },
             scales: {
               x: {
-                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                grid: { color: '#1a1a1a', drawBorder: false },
                 ticks: {
-                  color: '#9ca3af',
-                  font: { family: 'monospace', size: 11 },
+                  color: '#666666',
+                  font: { family: 'JetBrains Mono', size: 10 },
                   maxRotation: 0,
                   autoSkip: true,
-                  maxTicksLimit: 8
+                  maxTicksLimit: 10
                 }
               },
               y: {
-                grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                ticks: { color: '#9ca3af', font: { family: 'monospace', size: 10 } }
+                grid: { color: '#1a1a1a', drawBorder: false },
+                ticks: { color: '#666666', font: { family: 'JetBrains Mono', size: 10 } }
               }
             },
             plugins: {
               legend: { display: false },
               tooltip: {
-                backgroundColor: '#18181b',
-                borderColor: '#27272a',
+                backgroundColor: '#161616',
+                borderColor: '#2a2a2a',
                 borderWidth: 1,
-                titleColor: '#f4f4f5',
-                bodyColor: '#d4d4d8',
-                bodyFont: { family: 'monospace' }
+                titleColor: '#ffffff',
+                titleFont: { family: 'JetBrains Mono', size: 11 },
+                bodyColor: '#cccccc',
+                bodyFont: { family: 'JetBrains Mono', size: 11 },
+                padding: 8,
+                displayColors: false
               }
             }
           }
@@ -1331,7 +1373,7 @@ export class UserController {
         const fps = mData.recent_fingerprints || [];
         if (fps.length > 0) {
           fpTbody.innerHTML = fps.map(f => `
-            <tr class="hover:bg-dark-card/40">
+            <tr class="hover:bg-[#111111]/40">
               <td class="p-2.5 text-purple-300 font-bold truncate max-w-[100px]" title="${f.hash_id}">#${f.hash_id.slice(0, 10)}</td>
               <td class="p-2.5 text-gray-400 font-mono text-[11px]">${f.char_length} 字符</td>
               <td class="p-2.5 text-gray-400 font-mono text-[11px] truncate max-w-[100px]" title="${f.session_id}">${f.session_id}</td>
@@ -1348,7 +1390,7 @@ export class UserController {
         document.getElementById('memory-rule-count').innerText = rules.length;
         if (rules.length > 0) {
           rulesContainer.innerHTML = rules.map(r => `
-            <div class="p-3 rounded-xl bg-dark-input/80 border border-dark-border space-y-1 text-xs">
+            <div class="p-3 rounded-xl bg-dark-input/80 border border-[#222222] space-y-1 text-xs">
               <div class="flex items-center justify-between">
                 <span class="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20 font-bold text-[11px] font-mono">
                    ${r.category}
@@ -1728,7 +1770,7 @@ export class UserController {
           const ents = entData.entities || [];
           if (ents.length > 0) {
             tbody.innerHTML = ents.map(e => `
-              <tr class="hover:bg-dark-card/40">
+              <tr class="hover:bg-[#111111]/40">
                 <td class="p-2.5 font-bold text-emerald-300 truncate max-w-[120px]" title="${e.name}">
                   <span class="cursor-pointer hover:underline" onclick="quickQueryGraph('${escapeHtml(e.name)}')">
                     ${escapeHtml(e.name)}
@@ -1739,7 +1781,7 @@ export class UserController {
                   ${escapeHtml(e.description || '(暂无描述)')}
                 </td>
                 <td class="p-2.5 text-right space-x-1">
-                  <button onclick="quickQueryGraph('${escapeHtml(e.name)}')" class="px-2 py-0.5 rounded bg-dark-card hover:bg-gray-800 text-[10px] text-blue-300 border border-dark-border">2-hop</button>
+                  <button onclick="quickQueryGraph('${escapeHtml(e.name)}')" class="px-2 py-0.5 rounded bg-[#111111] hover:bg-gray-800 text-[10px] text-blue-300 border border-[#222222]">2-hop</button>
                   <button onclick="deleteGraphEntity('${e.id}')" class="px-2 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20 text-[10px] text-red-400 border border-red-500/20">删</button>
                 </td>
               </tr>
@@ -1779,7 +1821,7 @@ export class UserController {
         entities.forEach(e => { entMap[e.id] = e; });
 
         let html = `
-          <div class="flex items-center justify-between border-b border-dark-border/60 pb-2">
+          <div class="flex items-center justify-between border-b border-[#222222]/60 pb-2">
             <span class="text-emerald-300 font-bold">命中子图: ${entities.length} 个实体节点, ${rels.length} 条关系边</span>
             <span class="text-[10px] text-gray-400">遍历深度: 2-hop (BFS)</span>
           </div>
@@ -1792,7 +1834,7 @@ export class UserController {
             const src = entMap[r.source_id] ? entMap[r.source_id].name : r.source_id;
             const tgt = entMap[r.target_id] ? entMap[r.target_id].name : r.target_id;
             html += `
-              <div class="flex items-center space-x-2 text-xs py-1 px-2 rounded-lg bg-dark-input/60 border border-dark-border/40">
+              <div class="flex items-center space-x-2 text-xs py-1 px-2 rounded-lg bg-dark-input/60 border border-[#222222]/40">
                 <span class="text-emerald-300 font-bold"># ${escapeHtml(src)}</span>
                 <span class="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] font-mono border border-purple-500/30">${escapeHtml(r.relation_type)}</span>
                 <span class="text-blue-300 font-bold"> ${escapeHtml(tgt)}</span>
@@ -1805,9 +1847,9 @@ export class UserController {
 
         if (data.context_markdown) {
           html += `
-            <div class="mt-2 pt-2 border-t border-dark-border/40">
+            <div class="mt-2 pt-2 border-t border-[#222222]/40">
               <div class="text-[10px] text-gray-400 font-mono mb-1">注入大模型的 Prompt 知识块 (Prompt Injection Preview):</div>
-              <pre class="p-2 rounded bg-dark-bg text-emerald-400/90 text-[11px] whitespace-pre-wrap font-mono">${escapeHtml(data.context_markdown)}</pre>
+              <pre class="p-2 rounded bg-[#0a0a0a] text-emerald-400/90 text-[11px] whitespace-pre-wrap font-mono">${escapeHtml(data.context_markdown)}</pre>
             </div>
           `;
         }
@@ -2036,8 +2078,8 @@ export class UserController {
           }
           const isActive = (p === curP);
           const activeClass = isActive
-            ? 'bg-brand-500/20 text-brand-300 border border-brand-500/40 font-bold'
-            : 'bg-dark-card hover:bg-gray-800 text-gray-400 border border-dark-border';
+            ? 'bg-[#ff5722]/20 text-brand-300 border border-brand-500/40 font-bold'
+            : 'bg-[#111111] hover:bg-gray-800 text-gray-400 border border-[#222222]';
           return `<button onclick="gotoFlatPage(${p})" class="w-7 h-7 rounded-lg text-xs transition flex items-center justify-center ${activeClass}">${p}</button>`;
         }).join('');
         pageNumbersContainer.innerHTML = pagesHtml;
@@ -2049,18 +2091,36 @@ export class UserController {
           const preview = r.prompt_preview ? r.prompt_preview : '(无提问文本)';
           const proj = r.project_name || 'Pi-Agent';
 
+          const isStreaming = (r.status === 'streaming');
           // Determine cache badge: strictly show actual cached tokens
           const cachedTokens = r.cached_tokens || 0;
           let cacheBadge = '<span class="text-gray-500 font-mono text-[11px]">0</span>';
 
-          if (cachedTokens > 0) {
+          if (isStreaming) {
+            cacheBadge = `<span class="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[10px] font-mono animate-pulse flex items-center space-x-1 w-max">
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping mr-0.5"></span>
+              <span>流式生成中...</span>
+            </span>`;
+          } else if (cachedTokens > 0) {
             cacheBadge = `<span class="px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-300 border border-blue-500/20 font-bold font-mono text-[11px] flex items-center space-x-1 w-max">
               <span>${cachedTokens.toLocaleString()}</span>
             </span>`;
           }
 
+          const tokenDisplay = isStreaming
+            ? `${r.raw_tokens} <span class="text-gray-500">→</span> <span class="text-amber-400/80 animate-pulse text-[11px]">传输中...</span>`
+            : `${r.raw_tokens} <span class="text-gray-500">→</span> <span class="text-emerald-400">${r.optimized_tokens}</span>`;
+
+          const savedRatioDisplay = isStreaming
+            ? `<span class="text-gray-500 text-xs animate-pulse">计算中...</span>`
+            : `<span class="font-bold text-[#ff5722]">${r.saved_ratio}%</span>`;
+
+          const latencyDisplay = isStreaming
+            ? `<span class="text-amber-400/80 animate-pulse text-xs">进行中...</span>`
+            : `<span class="text-amber-300">${r.latency_ms.toFixed(1)}ms</span>`;
+
           return `
-            <tr onclick="openModal(${origIdx})" class="hover:bg-dark-card/60 cursor-pointer transition">
+            <tr onclick="openModal(${origIdx})" class="hover:bg-[#111111]/60 cursor-pointer transition">
               <td class="py-2.5 text-gray-500 font-bold">#${r.id}</td>
               <td class="py-2.5">
                 <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-semibold text-[11px]">${proj}</span>
@@ -2068,12 +2128,12 @@ export class UserController {
               <td class="py-2.5 text-purple-300 truncate max-w-[110px]" title="${r.session_id}">${r.session_id}</td>
               <td class="py-2.5 text-gray-300 font-sans truncate max-w-[200px]" title="${escapeHtml(preview)}">${escapeHtml(preview)}</td>
               <td class="py-2.5 text-blue-400 font-semibold truncate max-w-[140px]">${r.model}</td>
-              <td class="py-2.5">${r.raw_tokens} <span class="text-gray-500">→</span> <span class="text-emerald-400">${r.optimized_tokens}</span></td>
-              <td class="py-2.5 font-bold text-brand-400">${r.saved_ratio}%</td>
+              <td class="py-2.5">${tokenDisplay}</td>
+              <td class="py-2.5">${savedRatioDisplay}</td>
               <td class="py-2.5">${cacheBadge}</td>
-              <td class="py-2.5 text-amber-300">${r.latency_ms.toFixed(1)}ms</td>
+              <td class="py-2.5">${latencyDisplay}</td>
               <td class="py-2.5">
-                <button onclick="event.stopPropagation(); openModal(${origIdx})" class="px-2 py-0.5 rounded bg-dark-card hover:bg-gray-800 text-[10px] text-gray-300 border border-dark-border">详情</button>
+                <button onclick="event.stopPropagation(); openModal(${origIdx})" class="px-2 py-0.5 rounded bg-[#111111] hover:bg-gray-800 text-[10px] text-gray-300 border border-[#222222]">详情</button>
               </td>
             </tr>
           `;
@@ -2126,9 +2186,9 @@ export class UserController {
           const cacheHitsInSession = g.requests.filter(x => (x.cached_tokens > 0) || (x.applied_compressors || []).includes('dedup_compressor')).length;
           
           return `
-            <div class="glass rounded-xl border border-dark-border/80 overflow-hidden transition hover:border-dark-border">
+            <div class="glass rounded-xl border border-[#222222]/80 overflow-hidden transition hover:border-[#222222]">
               <!-- Session Header Card -->
-              <div onclick="toggleSessionExpand('${g.session_id}')" class="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer bg-dark-card/40 hover:bg-dark-card/80 transition">
+              <div onclick="toggleSessionExpand('${g.session_id}')" class="p-4 flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer bg-[#111111]/40 hover:bg-[#111111]/80 transition">
                 <div class="space-y-1.5 flex-1 min-w-0">
                   <div class="flex flex-wrap items-center gap-2">
                     <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 font-bold text-xs font-mono">
@@ -2157,7 +2217,7 @@ export class UserController {
                     <div class="text-emerald-400 font-bold">省 ${g.total_saved} Tokens (${overallSavedRatio}%)</div>
                     <div class="text-gray-500 text-[11px]">均耗时 ${avgLatency}ms</div>
                   </div>
-                  <div class="w-6 h-6 rounded-lg bg-dark-card border border-dark-border flex items-center justify-center text-gray-400 transition ${isExpanded ? 'rotate-180 text-brand-400' : ''}">
+                  <div class="w-6 h-6 rounded-lg bg-[#111111] border border-[#222222] flex items-center justify-center text-gray-400 transition ${isExpanded ? 'rotate-180 text-[#ff5722]' : ''}">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                   </div>
                 </div>
@@ -2165,9 +2225,9 @@ export class UserController {
 
               <!-- Collapsible Turns Table -->
               ${isExpanded ? `
-                <div class="border-t border-dark-border/80 bg-dark-bg/60 p-3 overflow-x-auto">
+                <div class="border-t border-[#222222]/80 bg-[#0a0a0a]/60 p-3 overflow-x-auto">
                   <table class="w-full text-left text-xs font-mono">
-                    <thead class="text-gray-500 uppercase text-[10px] border-b border-dark-border/40">
+                    <thead class="text-gray-500 uppercase text-[10px] border-b border-[#222222]/40">
                       <tr>
                         <th class="pb-2">轮次</th>
                         <th class="pb-2">提问摘要</th>
@@ -2183,24 +2243,24 @@ export class UserController {
                     <tbody class="divide-y divide-dark-border/30 text-gray-300">
                       ${g.requests.map((r, turnIdx) => {
                         const origIdx = globalRecentData.findIndex(item => item.id === r.id);
-                        const comps = (r.applied_compressors || []).map(c => `<span class="px-1.5 py-0.2 rounded bg-brand-500/10 text-brand-400 border border-brand-500/20 text-[10px]">${c}</span>`).join(' ');
+                        const comps = (r.applied_compressors || []).map(c => `<span class="px-1.5 py-0.2 rounded bg-[#ff5722]/10 text-[#ff5722] border border-brand-500/20 text-[10px]">${c}</span>`).join(' ');
                         const cTok = r.cached_tokens || 0;
                         let cBadge = '<span class="text-gray-500 font-mono text-[10px]">0</span>';
                         if (cTok > 0) {
                           cBadge = `<span class="text-blue-400 font-bold font-mono text-[10px]"> ${cTok.toLocaleString()}</span>`;
                         }
                         return `
-                          <tr class="hover:bg-dark-card/40">
+                          <tr class="hover:bg-[#111111]/40">
                             <td class="py-2 text-gray-500">#${r.id} (第 ${turnsCount - turnIdx} 轮)</td>
                             <td class="py-2 text-gray-200 font-sans truncate max-w-[220px]" title="${escapeHtml(r.prompt_preview || '')}">${escapeHtml(r.prompt_preview || '(无提问文本)')}</td>
                             <td class="py-2 text-blue-400 font-semibold">${r.model}</td>
                             <td class="py-2">${r.raw_tokens} → <span class="text-emerald-400">${r.optimized_tokens}</span></td>
-                            <td class="py-2 font-bold text-brand-400">${r.saved_ratio}%</td>
+                            <td class="py-2 font-bold text-[#ff5722]">${r.saved_ratio}%</td>
                             <td class="py-2">${cBadge}</td>
                             <td class="py-2">${comps || '<span class="text-gray-500 italic">无</span>'}</td>
                             <td class="py-2 text-amber-300">${r.latency_ms.toFixed(1)}ms</td>
                             <td class="py-2">
-                              <button onclick="openModal(${origIdx})" class="px-2 py-0.5 rounded bg-dark-card hover:bg-gray-800 text-[10px] text-gray-300 border border-dark-border">查看详情</button>
+                              <button onclick="openModal(${origIdx})" class="px-2 py-0.5 rounded bg-[#111111] hover:bg-gray-800 text-[10px] text-gray-300 border border-[#222222]">查看详情</button>
                             </td>
                           </tr>
                         `;
@@ -2232,7 +2292,7 @@ export class UserController {
       const comps = r.applied_compressors || [];
       if (comps.length > 0) {
         compContainer.innerHTML = comps.map(c => `
-          <span class="px-2 py-0.5 rounded bg-brand-500/20 text-brand-400 text-[11px] font-mono border border-brand-500/30">${c}</span>
+          <span class="px-2 py-0.5 rounded bg-[#ff5722]/20 text-[#ff5722] text-[11px] font-mono border border-brand-500/30">${c}</span>
         `).join('');
       } else {
         compContainer.innerHTML = '<span class="text-gray-500 italic text-xs">无修改 (内容结构已最优)</span>';
@@ -2245,13 +2305,17 @@ export class UserController {
       const cType = r.cache_type || 'none';
       const hasDedup = comps.includes('dedup_compressor');
 
-      if (cTokens > 0) {
+      if (r.status === 'streaming') {
+        cacheText.innerHTML = `<span class="text-amber-300 font-bold animate-pulse">流式生成中...</span> (等待上游返回最终 Usage)`;
+        cacheBadge.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse';
+        cacheBadge.innerText = 'STREAMING';
+      } else if (cTokens > 0) {
         cacheText.innerHTML = `<span class="text-blue-300 font-bold">实际缓存命中: ${cTokens.toLocaleString()} Tokens</span> (来源: ${cType.toUpperCase()})`;
         cacheBadge.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-blue-500/20 text-blue-300 border border-blue-500/30';
         cacheBadge.innerText = `${cTokens.toLocaleString()} TOKENS`;
       } else {
         cacheText.innerHTML = `<span class="text-gray-400 font-medium">实际缓存命中: 0 Tokens</span> (未命中上游模型 KV 缓存)`;
-        cacheBadge.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-dark-card text-gray-500 border border-dark-border';
+        cacheBadge.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-[#111111] text-gray-500 border border-[#222222]';
         cacheBadge.innerText = '0 TOKENS';
       }
 
@@ -2310,7 +2374,7 @@ export class UserController {
         const compressors = data.applied_compressors || [];
         if (compressors.length > 0) {
           tagsContainer.innerHTML = '<span>后端激活算子:</span>' + compressors.map(c => `
-            <span class="px-2 py-0.5 rounded bg-brand-500/20 text-brand-400 text-[11px] font-mono border border-brand-500/30">${c}</span>
+            <span class="px-2 py-0.5 rounded bg-[#ff5722]/20 text-[#ff5722] text-[11px] font-mono border border-brand-500/30">${c}</span>
           `).join('');
         } else {
           tagsContainer.innerHTML = '<span>后端激活算子:</span><span class="text-gray-500 italic text-xs">无修改 (内容已最优)</span>';
@@ -2341,11 +2405,41 @@ export class UserController {
     }
 
     // Auto-load & auto-refresh every 5s
+    
+    // World Clocks Update Loop
+    function updateWorldClocks() {
+      const now = new Date();
+      const formatTime = (tz) => {
+        try {
+          return new Intl.DateTimeFormat('en-GB', {
+            timeZone: tz,
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+          }).format(now);
+        } catch (e) {
+          return now.toTimeString().split(' ')[0];
+        }
+      };
+
+      const elBj = document.getElementById('clock-beijing');
+      if (elBj) elBj.innerText = formatTime('Asia/Shanghai');
+      const elLa = document.getElementById('clock-la');
+      if (elLa) elLa.innerText = formatTime('America/Los_Angeles');
+      const elNy = document.getElementById('clock-ny');
+      if (elNy) elNy.innerText = formatTime('America/New_York');
+      const elLon = document.getElementById('clock-london');
+      if (elLon) elLon.innerText = formatTime('Europe/London');
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       setViewMode('flat');
       refreshData();
       initGraphCanvas();
       loadSample('code');
+      updateWorldClocks();
+      setInterval(updateWorldClocks, 1000);
       setInterval(refreshData, 5000);
     });
   </script>
