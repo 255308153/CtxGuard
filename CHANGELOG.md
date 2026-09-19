@@ -105,8 +105,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 路由层全面引入 `pipeline.cache_guard.has_compressed_history(session_id)` 跨进程历史感知，彻底杜绝轮询路由下客户端原始报文（raw `body_bytes`）直通上游引发的 KV Cache 击穿归零。
 - **系统提示词不可变性与通用清洗算子安全守卫**:
   - `BaseCompressor.process` 显式跳过 `system` 与 `developer` 角色消息，严格遵守 Cache Invariant 2，杜绝前缀字节偏移。
-- **官方文档中心精简与架构沉淀**:
-  - 清理多余冲突目录（`docs/17-上下文模块设计/`、`面试问答/`、`docs/DEVELOPER_GUIDE.md`），规范化专栏导航与 `04b-输出Token压缩与塑造.md`。
 
 ### Optimized
 - **CPU 密集流水线异步多线程卸载 (Async Pipeline Offloading)**:
