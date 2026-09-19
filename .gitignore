@@ -98,3 +98,6 @@ benchmarks/
 AGENTS.md
 DESIGN.md
 DEVELOPMENT_GUIDE.md
+
+# WorkBuddy local agent state (memory / logs / config) — never publish
+.workbuddy/
