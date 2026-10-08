@@ -17,6 +17,12 @@ class NormalizedToolCall:
     is_error: bool = False
     tokens_consumed: int = 0
     raw_payload: Optional[Dict[str, Any]] = None
+    #: Provider-assigned call id (e.g. Claude Code's ``toolu_…``/``call_…``).
+    #: Loop detection uses it to recognise a resumed transcript replaying earlier turns.
+    #: Must be unique across sessions, not just within one, or two unrelated sessions look
+    #: like one replayed twice; scanners that synthesize ids are expected to scope them by
+    #: session. ``None`` means "unidentifiable" and such calls are never treated as replays.
+    call_id: Optional[str] = None
 
 
 @dataclass

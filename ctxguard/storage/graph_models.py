@@ -25,11 +25,16 @@ class MemoryScope(str, Enum):
     """Memory scope hierarchy (from broad to narrow).
 
     - USER:    Persists across all sessions; long-term preferences, identity.
+    - PROJECT: Persists across sessions but belongs to one repository/workspace.
+               Sits between USER and SESSION: broader than a conversation, narrower
+               than the person. Mirrors the "scope=PROJECT" value the memory_save
+               tool schema advertises, so that choice is representable at all.
     - SESSION: Lives for the current conversation window.
     - AGENT:   Scoped to a specific agent within a session.
     - TURN:    Single-turn scratch memory; discarded after the turn.
     """
     USER = "user"
+    PROJECT = "project"
     SESSION = "session"
     AGENT = "agent"
     TURN = "turn"

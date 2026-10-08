@@ -30,7 +30,14 @@ class RoundTripContextWriter(BaseContextWriter):
 
     @classmethod
     def render_body(cls, rules: List[LearnedRule]) -> str:
-        """Render markdown body grouped by sections."""
+        """Render markdown body grouped by sections.
+
+        Every field that participates in the merge identity MUST be rendered. The
+        ``- **Trigger**:`` line is part of the ``section + trigger`` identity, so
+        omitting it makes the block non-round-trippable: on the next run the parser
+        would fall back to ``"General Scenario"``, the identity would drift, and the
+        merge would append a duplicate instead of overwriting in place.
+        """
         if not rules:
             return "*(No active loop incidents or failure patterns recorded.)*"
 
@@ -46,7 +53,11 @@ class RoundTripContextWriter(BaseContextWriter):
             for r in sec_rules:
                 cf_tag = " *(Carried Forward)*" if r.carried_forward else ""
                 output_parts.append(f"- **Rule**: {r.directive}{cf_tag}")
-                
+                # Always emit the trigger (never collapse it into a default) so the
+                # identity survives the write -> parse round trip.
+                if r.trigger:
+                    output_parts.append(f"- **Trigger**: {r.trigger}")
+
                 context_info = []
                 if r.rationale:
                     context_info.append(r.rationale)
@@ -86,8 +97,14 @@ class RoundTripContextWriter(BaseContextWriter):
         target_path: Path,
         new_rules: List[LearnedRule],
         marker: str = "CTXGUARD_AUTO_RULES",
+        max_rules: Optional[int] = None,
     ) -> bool:
-        """Write rules into target_path with round-trip carry-forward of prior baseline rules."""
+        """Write rules into target_path with round-trip carry-forward of prior baseline rules.
+
+        ``max_rules`` is applied *after* the merge, so the cap governs the total number
+        of installed rules rather than only the newly discovered ones. Without a cap the
+        block grows monotonically: every run can add more than it supersedes.
+        """
         target_path = Path(target_path).resolve()
         target_path.parent.mkdir(parents=True, exist_ok=True)
         self.ensure_gitignore_safety(target_path)
@@ -103,8 +120,11 @@ class RoundTripContextWriter(BaseContextWriter):
             except Exception:
                 pass
 
-        # Perform round-trip merge
+        # Perform round-trip merge, then enforce the capacity cap
         merged_rules = RuleMerger.merge_rules(new_rules, prior_rules)
+        if max_rules is not None:
+            from ctxguard.learn.pruner import RulePruner
+            merged_rules = RulePruner.prune(merged_rules, max_rules=max_rules)
 
         timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         rendered_body = self.render_body(merged_rules)

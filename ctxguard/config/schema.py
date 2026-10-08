@@ -144,8 +144,21 @@ class LevelConfig:
     name: str = "level_1"
     max_tokens: int = 16384
     compression_mode: str = "lossless"
+    # NOTE: despite the name, this value is consumed as a *keep* ratio by
+    # SemanticPruner (1.0 = keep everything, 0.6 = keep 60%). It is floored by
+    # AdaptivePipelineConfig.semantic_pruning.min_keep_ratio.
     prune_ratio: float = 1.0
+    # When true, semantic pruning runs only if the ONNX runtime + model actually
+    # load; otherwise the operator stands down instead of degrading silently.
     use_onnx: bool = False
+
+
+@dataclass
+class SemanticPruningConfig:
+    """Guardrails for the silent, irreversible token pruner."""
+
+    enabled: bool = True           # master switch for the semantic_pruner operator
+    min_keep_ratio: float = 0.85   # floor applied to any caller-supplied keep ratio
 
 
 @dataclass
@@ -159,6 +172,7 @@ class AdaptivePipelineConfig:
     protected_keywords: List[str] = field(default_factory=lambda: [
         "CRITICAL", "FATAL", "TODO", "FIXME", "EXCEPTION"
     ])
+    semantic_pruning: SemanticPruningConfig = field(default_factory=SemanticPruningConfig)
 
 
 @dataclass
@@ -214,6 +228,9 @@ class LearnConfig:
     enabled: bool = True
     storage_db: str = ".ctxguard.db"
     detect_loop_threshold: int = 3
+    # Capacity cap on the number of installed rules. The rule block is injected into every
+    # future prompt, so an uncapped block turns one-time discoveries into a permanent tax.
+    max_rules: int = 10
     target_files: List[TargetFileConfig] = field(default_factory=lambda: [
         TargetFileConfig(path="CLAUDE.local.md", marker="CTXGUARD_AUTO_RULES"),
         TargetFileConfig(path=".cursorrules", marker="CTXGUARD_AUTO_RULES"),
@@ -232,7 +249,7 @@ class SemanticCacheConfig:
 
 @dataclass
 class PiggybackExtractionConfig:
-    enabled: bool = True
+    enabled: bool = False
 
 
 @dataclass

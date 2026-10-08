@@ -30,4 +30,8 @@ class AdaptiveScheduler:
         context.state["active_level"] = active_level.name
         context.state["compression_mode"] = active_level.compression_mode
         context.state["target_prune_ratio"] = active_level.prune_ratio
+        # Surfaced so SemanticPruner can honour `use_onnx` for real: with the flag
+        # on, pruning is model-judgement-only and stands down if the runtime is
+        # missing, instead of silently falling back to the category heuristic.
+        context.state["use_onnx"] = active_level.use_onnx
         return active_level

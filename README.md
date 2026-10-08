@@ -55,9 +55,9 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 - **生命周期冷热隔离与确定性执行**：将上下文划分为静态系统区与动态交互区。会话建立后自动锁定头部提示词快照，动态注入项仅追加于末尾活跃窗口；采用纯粹确定性单向压缩，彻底消除运行时回滚抖动。
 
 ### 2. 工业级 Tree-sitter 多语言语法树引擎 (TreeSitterSkeletonizer)
-- **9+ 门主流语言原生支持**：采用官方预编译纯 C 语言 Tree-sitter 绑定（支持 Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++ 等语言），逐字节精确提取函数/类签名与 Docstring。
+- **9+ 门主流语言原生支持**：采用官方预编译纯 C 语言 Tree-sitter 绑定（Python, JavaScript, TypeScript, TSX, Go, Rust, Java, C, C++ 等语言），逐字节精确提取函数/类签名与 Docstring；解析器不可用时可回退到 Python 原生 `ast`。
 - **微秒级解析**：单文件解析耗时 `< 1ms`，比纯 Python AST 快 5~10 倍；完美免疫注释括号、模板字符串及 JSX/TSX 嵌套，绝不破坏代码语法。
-- **可逆代码折叠**：函数体折叠后存入本地 SQLite 指纹池，附带 `ctx_expand(short_sha)` 标记，支持模型按需随时索要完整实现。
+- **可逆代码折叠**：函数体折叠后存入本地 SQLite 指纹池，附带引用标记，支持模型按需随时索要完整实现。
 
 ### 3. Tool 影子状态机与增量差分器 (ToolDeltaCompressor)
 - **会话级影子快照**：针对 `list_dir`、`find_by_name`、`git status`、`ls` 等探针指令，在内存中维护会话维度的文件与目录快照影子状态机。
@@ -82,7 +82,8 @@ CtxGuard 提供了现代化的一体化监控控制台（默认访问 `http://12
 - **网关层自闭环响应拦截 (CCR Loop)**：在网关层截断拦截云端大模型发出的 `tool_calls: ctx_expand`。网关本地 0.1ms 提取原文并自动在后台发起第 2 轮续写（Continuation Request），向下游客户端（Cline, RooCode, Claude Code, Cursor）彻底屏蔽虚拟工具调用过程，100% 杜绝 `Tool not found` 崩溃，真正实现无感可逆。
 - **单会话去重铁律与零跨会话致盲**：内容去重严格锁定在单会话内（`Storage Invariant 2`），新会话首读文件 100% 全量放行，彻底消除新会话“两眼一抹黑”的致盲隐患；SQLite 全局指纹库专注扮演 CAS（内容寻址存储）永久还原底座。
 - **纯净占位符清洗 (No-Deception Placeholder)**：禁用工具注入时，全面清洗所有压缩模块的折叠占位符，严禁输出任何 `Use ctx_expand` 诱导信息，杜绝欺骗大模型。
-- **纯内存热 LRU 纳秒级检索**：基于 10,000 容量的内存 `OrderedDict` 维护热点指纹索引，读路径 100% 内存 O(1) 命中，杜绝频繁磁盘 I/O 与 SSD 写入磨损；结合批量惰性持久化削减 99% 以上磁盘事务提交。
+- **纯内存热 LRU 纳秒级检索**：基于 `OrderedDict` 维护热点指纹索引（容量由 `dedup.max_records` 控制，默认 **1,000** 条），读路径 100% 内存 O(1) 命中，杜绝频繁磁盘 I/O 与 SSD 写入磨损；淘汰改为**每 50 次写入批量惰性清理**，配合 `(last_accessed_at, hit_count)` 复合索引，长会话磁盘事务提交削减 99% 以上。
+- **仅折叠持久化 (Fold-Only Persistence)**：只把真正被折叠的内容写入 SQLite（统一单写 12 位 `short_sha`），未折叠的普通对话与历史前缀 100% 不落盘；支持 12 位短哈希 / 64 位长哈希双向前缀检索。
 - **CPU 密集流水线多线程异步卸载**：通过 `asyncio.to_thread` 将 AST 解析与正则分词卸载至工作线程池，主事件循环零阻塞，多 Agent 并发无排队延迟。
 - **主动感知回填 (Proactive Context Expansion)**：结合 `ContextTracker` 7 重防御体系，在用户提问前置自适应识别并回填关键上下文，防范 Prompt 膨胀；严格限制仅在活区（Live Zone）末尾追加，绝不篡改历史前缀，完美守护云端 KV Cache 90%+ 稳定命中率。
 
@@ -236,12 +237,14 @@ adaptive_pipeline:
 ## CLI 命令速查
 
 ```bash
-ctxguard wrap <agent>     # 自动感知中转配置并直接一键拉起目标 Agent (claude/pi/codex)
+ctxguard wrap <agent>     # 自动感知中转配置并直接一键拉起目标 Agent (claude/pi/codex/aider)
 ctxguard env --patch      # 自动扫描并改写本地客户端配置指向代理网关
+ctxguard config show      # 打印当前实际生效的完整配置 (含 ctxguard.yaml 覆盖项)
+ctxguard config validate  # 校验 ctxguard.yaml 语法与语义合法性
 ctxguard stats            # 查看网关当前的吞吐量、压缩效率与近期待处理请求
 ctxguard savings          # 查看长周期的 Token 与成本节约明细
 ctxguard learn --dry-run  # 预览复盘提炼的避坑经验与浪费权重（不写磁盘）
-ctxguard learn --apply    # 触发自进化学习，智能结转并写入项目规则 (AGENTS.md / .cursorrules)
+ctxguard learn --apply    # 触发自进化学习，智能结转并写入项目规则
 ctxguard learn -a claude  # 指定仅扫描特定 Agent 生态 (auto / claude / ctxguard / gemini / codex)
 ctxguard env              # 查看或导出各客户端的环境变量配置
 ```

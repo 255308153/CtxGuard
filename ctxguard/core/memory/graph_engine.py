@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ctxguard.core.context import Message, RequestContext
@@ -126,11 +127,14 @@ class MemoryGraphEngine:
         graph_store: SQLiteGraphStore,
         injection_budget: Optional[MemoryInjectionBudget] = None,
         piggyback_enabled: bool = True,
+        decay_days: float = 30.0,
     ):
         self.store = graph_store
         self.budget = injection_budget or MemoryInjectionBudget()
         self.piggyback_enabled = piggyback_enabled
-        self.relevance_scorer = MemoryRelevanceScorer(min_threshold=0.25)
+        # Recency decay for injection ordering; 30 days matches headroom's ranker default.
+        self.decay_days = decay_days
+        self.relevance_scorer = MemoryRelevanceScorer(min_threshold=0.25, decay_days=decay_days)
         self._bootstrap_default_knowledge()
 
     def _bootstrap_default_knowledge(self) -> None:
@@ -250,6 +254,47 @@ class MemoryGraphEngine:
 
         return subgraph
 
+    def _build_line_ranker(self, query: str, subgraph: Subgraph):
+        """Return a ``(entity_id, line) -> priority`` callable for injection ordering.
+
+        Implements headroom's memory-ranker semantics: priority is
+        ``similarity × exp(-age_days / decay_days)``. This only decides *which* matched
+        memories survive the injection budget — it never changes whether we inject.
+        """
+        created_by_id = {e.id: getattr(e, "created_at", None) for e in subgraph.entities}
+        scorer = self.relevance_scorer
+        now = datetime.now(timezone.utc)
+
+        def _priority(entity_id: str, line: str) -> float:
+            return scorer.boosted_score(
+                query,
+                line,
+                created_at=created_by_id.get(entity_id),
+                now=now,
+            )
+
+        return _priority
+
+    @staticmethod
+    def _append_to_last_user_message(messages: List[Any], suffix: str) -> bool:
+        """Append a suffix to the latest user message; never to the system prompt.
+
+        Cache invariant: the system prompt and historical prefix must stay byte-identical
+        so the upstream KV cache keeps hitting. All dynamic suffixes land in the live zone
+        (the tail of the newest user turn).
+        """
+        for msg in reversed(messages):
+            if getattr(msg, "role", "") != "user":
+                continue
+            if isinstance(msg.content, str):
+                msg.content = msg.content + suffix
+            elif isinstance(msg.content, list):
+                msg.content.append({"type": "text", "text": suffix})
+            else:
+                return False
+            return True
+        return False
+
     def inject_graph_context(self, context: RequestContext) -> Optional[str]:
         """Extract relevant graph knowledge and inject into context messages.
 
@@ -287,39 +332,45 @@ class MemoryGraphEngine:
         # 2. Retrieve relevant subgraph (active-only, recency-ranked)
         subgraph = self.find_relevant_subgraph(last_user_text, user_id=user_id, max_hops=2)
 
-        injected_block = ""
-        context_md = ""
+        injected_md = ""
 
-        # Score relevance against user query
+        # 3. Gate on relevance, then order the survivors by relevance × recency before
+        #    the token budget trims the tail. The lines that get dropped are then the
+        #    least relevant AND most stale ones, rather than whoever was emitted first.
         if subgraph and self.relevance_scorer.should_inject(last_user_text, subgraph):
-            context_md = format_natural_subgraph(subgraph, self.budget.apply) or ""
+            context_md = format_natural_subgraph(
+                subgraph,
+                self.budget.apply,
+                score_fn=self._build_line_ranker(last_user_text, subgraph),
+            ) or ""
             if context_md.strip():
-                injected_block = (
-                    f"\n\n[Relevant User Context & Preferences]\n"
-                    f"{context_md}\n"
-                    f"[/Relevant User Context & Preferences]"
-                )
+                injected_md = context_md
 
-        if not injected_block.strip():
+        # 4. Assemble the dynamic suffix. The extraction protocol is appended even when no
+        #    memory was injected: extraction is what *creates* memories, and gating it on a
+        #    cache hit would mean a store that can never grow.
+        suffix_parts: List[str] = []
+        if injected_md:
+            suffix_parts.append(
+                f"\n\n[Relevant User Context & Preferences]\n"
+                f"{injected_md}\n"
+                f"[/Relevant User Context & Preferences]"
+            )
+        if self.piggyback_enabled:
+            suffix_parts.append(EXTRACTION_PROTOCOL_INSTRUCTION)
+
+        if not suffix_parts:
             return None
 
         # 5. Append to latest user message (NEVER to system prompt — cache invariant)
-        messages = context.request.messages
-        last_user_msg = None
-        for m in reversed(messages):
-            if m.role == "user":
-                last_user_msg = m
-                break
+        if not self._append_to_last_user_message(context.request.messages, "".join(suffix_parts)):
+            logger.debug("[MemoryGraph] No user message found; skipping injection.")
+            return None
 
-        if last_user_msg is not None:
-            if isinstance(last_user_msg.content, str):
-                last_user_msg.content = last_user_msg.content + injected_block
-            elif isinstance(last_user_msg.content, list):
-                last_user_msg.content.append({"type": "text", "text": injected_block})
+        if injected_md:
             context.metadata["graph_injected"] = True
-            return context_md or "piggyback_protocol_injected"
-
-        return None
+            return injected_md
+        return "piggyback_protocol_injected"
 
     # --------------------------------------------------------------------------
     # Piggyback (搭便车) Extraction: Parsing, Stripping, and Async Application

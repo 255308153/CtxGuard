@@ -119,12 +119,18 @@ adaptive_pipeline:
     - name: "level_2"            # 档位 2: 中长上下文 (16k ~ 64k tokens)
       max_tokens: 65536
       compression_mode: "lightweight"
-      prune_ratio: 0.85          # 轻度精简多余换行与占位符
+      prune_ratio: 0.85          # 语义剪枝的**保留率**（0.85 = 内容词保留 85%，删 15%）
     - name: "level_3"            # 档位 3: 超长上下文 (> 64k tokens)
       max_tokens: 200000
       compression_mode: "deep"
-      prune_ratio: 0.60          # 深度剪枝
-      use_onnx: false            # 是否启用 ONNX INT8 微型模型剪枝（需安装 [onnx] 可选依赖）
+      prune_ratio: 0.85          # 曾为 0.60 —— 实测会把 40% 的汉字与 98.5% 的中文标点删掉，
+                                 # 上游只看到残文并模仿该文风作答（"格式错乱"事故的根因）
+      use_onnx: false            # true = 只允许神经打分，onnxruntime 不可用时算子直接退出；
+                                 # false = 允许内置启发式兜底打分
+  semantic_pruning:              # 语义剪枝（semantic_pruner）的安全阀
+    enabled: false               # 总开关：false 则完全不删词（2026-09-30 关闭：曾把中文标点删到 1.5%、换行塌成空格）
+    min_keep_ratio: 0.85         # 保留下限（防呆）：低于此值的 prune_ratio 会被抬到 0.85，
+                                 # 避免"压缩"退化成"把自然语言删成缺字"
   protected_keywords:            # 剪枝时绝对受保护、禁止剔除的关键词/标识符
     - "CRITICAL"
     - "FATAL"

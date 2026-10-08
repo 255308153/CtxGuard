@@ -85,6 +85,11 @@ class ClaudeConversationScanner(BaseConversationScanner):
         session_id = file_path.stem
         start_ts = 0.0
         end_ts = 0.0
+        # tool_use_id -> tool name, so a result block can be attributed to the tool that
+        # actually produced it. Claude Code writes only `tool_use_id` on a result block, so
+        # without this join every failure loop is reported against the placeholder name
+        # "tool_result" — evidence that names nothing and cannot be acted on.
+        tool_name_by_call: Dict[str, str] = {}
 
         try:
             with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -131,24 +136,42 @@ class ClaudeConversationScanner(BaseConversationScanner):
                             if itype == "text":
                                 text_parts.append(item.get("text", ""))
                             elif itype in ("toolCall", "tool_use"):
+                                call_id = item.get("id")
+                                tool_name = item.get("name", "unknown")
+                                if call_id:
+                                    tool_name_by_call[str(call_id)] = tool_name
                                 tool_calls.append(
                                     NormalizedToolCall(
-                                        tool_name=item.get("name", "unknown"),
+                                        tool_name=tool_name,
                                         arguments=item.get("arguments", item.get("input", {})),
                                         tokens_consumed=estimate_tokens_from_text(str(item)),
                                         raw_payload=item,
+                                        # Claude Code writes the call id on the tool_use block and
+                                        # repeats it as `tool_use_id` on the matching tool_result.
+                                        call_id=call_id,
                                     )
                                 )
                             elif itype in ("toolResult", "tool_result"):
                                 out_text = item.get("content", item.get("text", ""))
                                 is_err = item.get("is_error", False) or "error" in str(out_text).lower()
+                                result_call_id = item.get("tool_use_id")
+                                resolved_name = (
+                                    item.get("tool_name")
+                                    or tool_name_by_call.get(str(result_call_id))
+                                    or "tool_result"
+                                )
                                 tool_calls.append(
                                     NormalizedToolCall(
-                                        tool_name=item.get("tool_name", "tool_result"),
+                                        tool_name=resolved_name,
                                         output=str(out_text),
                                         is_error=is_err,
                                         tokens_consumed=estimate_tokens_from_text(str(out_text)),
                                         raw_payload=item,
+                                        # Same provider id as the tool_use above: one call is
+                                        # scanned as two events here (request + result), so the
+                                        # replay check has to key on id *and* phase or a call
+                                        # would be mistaken for a replay of its own result.
+                                        call_id=result_call_id,
                                     )
                                 )
                         text_content = "\n".join(text_parts)

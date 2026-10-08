@@ -33,8 +33,13 @@ from ctxguard.storage.graph_models import (
 
 logger = logging.getLogger(__name__)
 
-# Recency decay: score = exp(-lambda * days). lambda=0.05 means 14-day-old ~50%.
-_RECENCY_LAMBDA = 0.05
+# Recency decay, expressed as a half-life-style constant: score = exp(-age_days / DECAY_DAYS).
+# 30 days matches headroom's memory ranker (memory_rank_policy: decay_days = 30), so a
+# memory's weight is 1.000 / 0.607 / 0.368 / 0.135 / 0.050 at 0 / 15 / 30 / 60 / 90 days.
+# The previous value was lambda=0.05 (equivalent to DECAY_DAYS = 20), which decayed ~1.5x
+# faster and was never justified anywhere in the code or docs.
+RECENCY_DECAY_DAYS = 30.0
+_RECENCY_LAMBDA = 1.0 / RECENCY_DECAY_DAYS
 
 
 def _utc_now_iso() -> str:

@@ -85,8 +85,11 @@ class CompressionPipeline:
             fingerprint_repo=fingerprint_repo,
             tool_injection_enabled=tool_injection_enabled,
         )
+        sp_cfg = getattr(config.adaptive_pipeline, "semantic_pruning", None)
         self.semantic_pruner = SemanticPruner(
             protected_keywords=config.adaptive_pipeline.protected_keywords,
+            min_keep_ratio=getattr(sp_cfg, "min_keep_ratio", 0.85) if sp_cfg else 0.85,
+            enabled=getattr(sp_cfg, "enabled", True) if sp_cfg else True,
         )
 
         # Standard rule-based compressors in order

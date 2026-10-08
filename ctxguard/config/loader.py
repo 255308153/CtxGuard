@@ -22,6 +22,7 @@ from ctxguard.config.schema import (
     ToolDeltaConfig,
     AdaptivePipelineConfig,
     LevelConfig,
+    SemanticPruningConfig,
     CacheGuardConfig,
     LearnConfig,
     TargetFileConfig,
@@ -184,10 +185,17 @@ class ConfigLoader:
                     prune_ratio=float(lvl.get("prune_ratio", 1.0)),
                     use_onnx=bool(lvl.get("use_onnx", False)),
                 ))
+            sp_data = ap_data.get("semantic_pruning", {})
+            base_sp = config.adaptive_pipeline.semantic_pruning
+            semantic_pruning = SemanticPruningConfig(
+                enabled=bool(sp_data.get("enabled", base_sp.enabled)),
+                min_keep_ratio=float(sp_data.get("min_keep_ratio", base_sp.min_keep_ratio)),
+            )
             config.adaptive_pipeline = AdaptivePipelineConfig(
                 enabled=ap_data.get("enabled", config.adaptive_pipeline.enabled),
                 levels=levels if levels else config.adaptive_pipeline.levels,
                 protected_keywords=ap_data.get("protected_keywords", config.adaptive_pipeline.protected_keywords),
+                semantic_pruning=semantic_pruning,
             )
 
         # Cache guard

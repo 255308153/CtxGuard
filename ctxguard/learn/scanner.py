@@ -23,6 +23,37 @@ class LogEvent:
     role: str = "tool"               # "user" | "assistant" | "tool"
     user_interrupt: bool = False     # True if user rejected, cancelled, or interrupted
     metadata: Dict[str, Any] = field(default_factory=dict)
+    #: Provider call id, used to recognise a resumed transcript replaying earlier turns.
+    #: Empty string means the event carries no identity and can never be judged a replay.
+    call_id: str = ""
+
+
+def events_from_sessions(sessions: List[Any]) -> List[LogEvent]:
+    """Flatten ConversationSession objects into a single session-tagged LogEvent stream.
+
+    Single source of truth for the session -> event normalization used by both the
+    learning engine (loop detection) and the analyzer (heuristic fallback). Keeping one
+    implementation matters because loop detection is session-scoped: if the two call
+    sites disagreed on how session_id is attached, the same trajectory could be judged
+    a loop in one path and clean in the other.
+    """
+    events: List[LogEvent] = []
+    for session in sessions:
+        for turn in getattr(session, "turns", []) or []:
+            for tc in getattr(turn, "tool_calls", []) or []:
+                events.append(
+                    LogEvent(
+                        timestamp=getattr(turn, "timestamp", 0.0) or 0.0,
+                        session_id=getattr(session, "session_id", "") or "",
+                        tool_name=getattr(tc, "tool_name", ""),
+                        tool_input=getattr(tc, "arguments", {}) or {},
+                        output=getattr(tc, "output", "") or "",
+                        is_error=bool(getattr(tc, "is_error", False)),
+                        role=getattr(turn, "role", "tool") or "tool",
+                        call_id=getattr(tc, "call_id", None) or "",
+                    )
+                )
+    return events
 
 
 class LogScanner:
