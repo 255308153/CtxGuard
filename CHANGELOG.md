@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.7] - 2026-10-09
+
+### Added
+- **自进化学习引擎与死循环检测优化 (Evolutionary Learn Engine & Loop Detector Enhancement)**:
+  - 增强 `LoopDetector`、`Scanner`、`Analyzer` 与 `Merger`，提升会话隔离与规则分析精度；
+  - 优化规则剪枝器（`pruner.py`）与规则合并器（`merger.py`），支持自动聚合重复故障模式并归档规则库；
+  - 优化记忆图谱评分引擎（`relevance.py` 与 `graph_engine.py`），增强 2-hop 关联实体与权重自适应调度（`adaptive_scheduler.py`）；
+  - 完善虚拟工具执行器（`virtual_tools/executor.py` 与 `injector.py`），提供稳健的内部工具分发机制；
+  - 新增守护进程管理脚本 `scripts/ctxguard-service.sh`，支持标准的启动、停止、重启、健康探测与日志跟踪。
+
+### Fixed
+- **单载荷可见性保证与杜绝模型致盲 (Storage Invariant 4: Payload-Local Folding & Live-Copy Guarantee)**:
+  - 修复 `DedupCompressor` 跨请求折叠唯一可见文件导致的模型致盲与反复重读问题；
+  - 严格规定引用指针仅在**同一请求载荷内已存在至少一份完整明文**的前提下才允许折叠；当内容在当前载荷仅出现一次时，必须 100% 保持明文直通；
+  - 杜绝 AI Agent 因无法获取完整代码而在多轮交互中反复触发读取死循环。
+
+---
+
 ## [0.2.6] - 2026-09-18
 
 ### Added
